@@ -1,0 +1,7 @@
+.packages/
+.venv/
+.uv-cache/
+.logs/
+data/
+__pycache__/
+*.py[cod]

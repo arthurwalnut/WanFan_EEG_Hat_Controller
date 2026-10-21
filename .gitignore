@@ -1,0 +1,36 @@
+# Local recordings, models and machine configuration
+/EEG_Realtime/data/
+/EEG_Signal_to_Decision/data/
+/EEG_Signal_to_Decision/runs/
+/EEG_Signal_to_Decision/exp_results/
+*.joblib
+*.npz
+*.xdf
+*.jsonl
+.env
+.env.*
+
+# Local dependencies, logs and caches
+.packages/
+.logs/
+.venv/
+.uv-cache/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+.DS_Store
+Thumbs.db
+
+# Existing-PC maintenance scripts; keep locally for startup and restore
+/EEG_Realtime/tools/configure-*.ps1
+/EEG_Realtime/tools/update-device-firewall-ip.ps1
+/EEG_Realtime/tools/service_watchdog.py
+
+# Vendor applications and reference materials retained on this PC
+/InBrain/
+/*.exe
+/*.pdf
+*.zip
+*.zip.sha256

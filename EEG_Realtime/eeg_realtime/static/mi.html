@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>EEG · 运动想象实验台</title>
+  <link rel="stylesheet" href="/mi.css">
+  <link rel="stylesheet" href="/robot-ui.css">
+  <script src="/robot-ui.js" defer></script>
+  <script src="/mi.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="EEG 运动想象实验台首页"><span class="brand-mark">∿</span><span>EEG <b>实验台</b><small>运动想象 · 采集与在线识别</small></span></a>
+    <div class="top-meta"><a class="legacy-link" data-extra-workflow href="/cvep">c-VEP 注视选择 ↗</a><a class="legacy-link" data-extra-workflow href="/ssvep">SSVEP 四分类 ↗</a><span class="montage">250 Hz <i>·</i> 8 通道</span><span id="connectionStatus" class="status-pill">未连接</span></div>
+  </header>
+  <main>
+    <div class="page-heading"><div><p class="eyebrow">MOTOR IMAGERY WORKSPACE</p><h1>运动想象实验台</h1><p>采集静息与左右手运动想象，训练模型并实时识别。</p></div><a class="legacy-link" data-extra-workflow href="/legacy">通用采集与二分类 ↗</a></div>
+    <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+    <div id="demoBanner" class="demo-banner"><span class="demo-dot"></span><b>演示数据</b><span>用于验证软件流程；演示模型不能用于真实设备。</span></div>
+    <nav class="tabs" aria-label="实验工作区">
+      <button type="button" class="tab active" data-tab="acquisition" aria-selected="true" role="tab" aria-controls="acquisitionPane" id="acquisitionTab"><span>01</span> 采集与提示</button>
+      <button type="button" class="tab" data-tab="replay" aria-selected="false" role="tab" aria-controls="replayPane" id="replayTab"><span>02</span> 数据回放</button>
+      <button type="button" class="tab" data-tab="training" aria-selected="false" role="tab" aria-controls="trainingPane" id="trainingTab"><span>03</span> 模型训练</button>
+      <button type="button" class="tab" data-tab="robot" aria-selected="false" role="tab" aria-controls="robotPane" id="robotTab"><span>04</span> 在线识别与机械臂</button>
+    </nav>
+
+    <section id="acquisitionPane" class="tab-pane" role="tabpanel" aria-labelledby="acquisitionTab">
+      <div class="acquisition-grid">
+        <div class="control-stack">
+          <section class="card">
+            <div class="card-heading"><h2>信号源</h2><span id="sourceBadge" class="tag">DEMO</span></div>
+            <label for="sourceSelect">采集方式</label>
+            <select id="sourceSelect"><option value="demo">演示 · 模拟 EEG</option><option value="device">设备 · EEG Hat</option></select>
+            <div id="deviceFields" hidden>
+              <label for="deviceIp">设备 IPv4 地址</label>
+              <div class="input-action"><input id="deviceIp" type="text" placeholder="例如 192.168.137.240" autocomplete="off" inputmode="decimal" spellcheck="false"><button id="discoverButton" type="button" class="secondary">发现</button></div>
+              <p class="field-note">连接前会确认设备地址；发现多台时请手动选择。搜索无响应时，可填写热点列表中的设备 IP 再连接。</p>
+              <div id="discoveryResults" class="discovery-results" aria-live="polite"></div>
+            </div>
+            <div class="button-row"><button id="connectButton" type="button" class="primary">连接演示</button><button id="disconnectButton" type="button" class="secondary" disabled>停止采集</button></div>
+            <p id="sourceMessage" class="field-note">连接后可观察波形，录制需单独开始。</p>
+            <p id="deviceTarget" class="field-note" hidden></p>
+            <dl class="telemetry"><div><dt>数据包</dt><dd id="packetCount">—</dd></div><div><dt>丢包</dt><dd id="lostCount">—</dd></div><div><dt>最近数据</dt><dd id="dataAge">—</dd></div></dl>
+          </section>
+          <section class="card">
+            <div class="card-heading"><h2>定时录制</h2><span id="recordBadge" class="tag">待开始</span></div>
+            <label for="subjectInput">受试者编号 <span class="optional">可选</span></label>
+            <input id="subjectInput" type="text" maxlength="80" placeholder="例如 S01" autocomplete="off">
+            <label for="durationInput">总时长（秒）</label>
+            <input id="durationInput" type="number" min="1" max="3600" step="1" value="210">
+            <p class="field-note">每组为 2 秒十字间隔和 5 秒随机任务；余时不足一组则显示十字。训练需每类至少 6 个有效试次。</p>
+            <div class="button-row"><button id="recordButton" type="button" class="primary" disabled>开始录制 <kbd>Space</kbd></button><button id="stopRecordButton" type="button" class="danger-quiet" disabled>结束并保存</button></div>
+            <p class="field-note">录制时请保持本页面聚焦；切换窗口或标签页将停止并保留数据。</p>
+            <p id="clockSyncStatus" class="field-note">开始前检查提示时钟；估计的对齐误差超过 50 毫秒时暂不录制。</p>
+          </section>
+        </div>
+        <section id="cueCard" class="card cue-card" aria-label="受试者任务提示">
+          <div class="card-heading"><h2>受试者提示</h2><span id="cuePhase" class="tag">准备</span></div>
+          <div id="cueStage" class="cue-stage" data-label="idle">
+            <div id="cueSymbol" class="cue-symbol" aria-hidden="true">+</div>
+            <h3 id="cueTitle">准备开始</h3>
+            <p id="cueInstruction">连接信号源后，按空格或点击“开始录制”</p>
+            <span id="cueTrial" class="cue-trial">保持舒适坐姿，注视中央提示</span>
+          </div>
+          <div class="cue-footer"><span id="recordElapsed">00:00</span><div class="progress-track"><div id="recordProgress"></div></div><span id="recordRemaining">尚未录制</span></div>
+          <div id="focusRecordControls" class="focus-record-controls" hidden><span>录制进行中 · 请保持本页面聚焦</span><button id="focusStopRecordButton" type="button" class="danger-quiet">结束并保存</button></div>
+          <p class="timing-note">失焦、画面停顿或提示确认中断时停止录制。标签按浏览器与服务器时钟估计对齐，尚未进行硬件同步测量。</p>
+        </section>
+      </div>
+      <section id="recordingValidation" class="card" hidden aria-live="polite">
+        <div class="card-heading"><h2>录制后检查</h2><span id="recordingValidationStatus" class="tag">检查中</span></div>
+        <p class="field-note">原始记录保留；下方列出通过标注和信号检查、可用于训练的试次。</p>
+        <div id="recordingValidationDetails"></div>
+      </section>
+    </section>
+
+    <section id="replayPane" class="tab-pane" role="tabpanel" aria-labelledby="replayTab" hidden>
+      <section class="card">
+        <div class="card-heading"><div><h2>录制回放</h2><p>同步查看 8 通道 EEG 与当时的提示标注。</p></div><button id="refreshSessionsButton" type="button" class="secondary small">刷新列表</button></div>
+        <div class="replay-select-row"><div><label for="replaySession">录制文件</label><select id="replaySession"><option value="">暂无录制</option></select></div><button id="loadReplayButton" type="button" class="primary">载入回放</button></div>
+        <div id="replayDetails" class="field-note">先选择一次录制。</div>
+        <div class="playback-controls"><button id="playReplayButton" type="button" class="primary" disabled>播放</button><button id="pauseReplayButton" type="button" class="secondary" disabled>暂停</button><label class="speed-control" for="replaySpeed">倍速<select id="replaySpeed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select></label><div class="replay-current"><span>当前录制标注</span><b id="replayLabel">—</b><small id="replayTrial"></small></div></div>
+        <label class="sr-only" for="replaySeek">回放进度（秒）</label><input id="replaySeek" class="seek-slider" type="range" min="0" max="1" step="0.02" value="0" disabled>
+        <div class="timeline-ends"><span id="replayPosition">00:00.0</span><span id="replayDuration">00:00.0</span></div>
+      </section>
+    </section>
+
+    <section id="trainingPane" class="tab-pane" role="tabpanel" aria-labelledby="trainingTab" hidden>
+      <div class="training-grid">
+        <section class="card">
+          <div class="card-heading"><div><h2>选择训练数据</h2><p>优先按整次录制划分训练、校准和测试集，仅使用完整有效的任务窗口。</p></div><button id="refreshTrainingButton" type="button" class="secondary small">刷新</button></div>
+          <div id="trainingSessions" class="session-list"><p class="empty-state">录制完成后，数据会出现在这里。</p></div>
+          <div class="two-fields"><div><label for="featureSelect">特征</label><select id="featureSelect"><option value="csp">CSP · 6 维空间特征</option><option value="bandpower">8–30 Hz 频带功率 · 8 维</option><option value="combined">CSP + 频带功率 · 14 维</option></select></div><div><label for="classifierSelect">分类器</label><select id="classifierSelect"><option value="lda">LDA</option><option value="svm">线性 SVM</option></select></div></div>
+          <div class="processing-note"><b>预处理与特征</b><p>平均参考（CAR） → 50 / 100 Hz 陷波 → 1–40 Hz 带通 → 375 点窗口 / 25 点步长。</p><p>固定 250 Hz，对应 1.5 秒窗口、0.1 秒步长。频带功率使用 8–30 Hz 单带多窗谱估计（multitaper）与 log10，每通道 1 维；组合特征为 6 维 CSP + 8 维频带功率。</p><p>原始信号的直流偏置和大幅度仅提示告警；无效数值、饱和及平线会被剔除。</p></div>
+          <div class="button-row"><button id="trainButton" type="button" class="primary">训练三分类模型</button><button id="stopForTrainingButton" type="button" class="secondary" hidden>先停止采集</button><span id="selectedSessions" class="field-note">已选 0 次录制</span></div>
+          <p id="trainingMessage" class="field-note" aria-live="polite">建议同一受试者、同一电极配置的数据共同训练。实机数据与演示数据不能混用。</p>
+        </section>
+        <section class="card">
+          <div class="card-heading"><h2>测试结果与训练诊断</h2><span id="trainingBadge" class="tag">未训练</span></div>
+          <p id="trainingResultContext" class="result-context">尚未训练</p>
+          <div id="metricsPanel" class="metrics-panel"><p class="empty-state">训练完成后显示留出测试指标与数据隔离方式。</p></div>
+          <p class="field-note">测试准确率用于评估模型，置信度描述单次预测；新场景效果需另行验证。</p>
+          <div class="divider"></div>
+          <div id="diagnosticsPanel" class="diagnostics-panel"><p class="empty-state">训练后显示候选窗口、保留试次与告警原因；失败时也保留可用诊断。</p></div>
+          <div class="divider"></div>
+          <label for="modelSelect">已保存模型</label>
+          <div class="input-action"><select id="modelSelect"><option value="">暂无模型</option></select><button id="loadModelButton" type="button" class="secondary">加载</button></div>
+          <p id="modelDetails" class="field-note">采集与回放均可使用匹配数据来源的模型。</p>
+        </section>
+      </div>
+    </section>
+
+    <section id="robotPane" class="tab-pane" role="tabpanel" aria-labelledby="robotTab" hidden>
+      <section class="card robot-card">
+        <div class="card-heading"><div><h2>机械臂联动</h2><p>左手想象 → Elite · 右手想象 → Piper · 静息不触发</p></div><span id="robotModeBadge" class="tag">未启用</span></div>
+        <div class="robot-layout">
+          <div>
+            <div class="two-fields"><div><label for="robotHost">机械臂 PC 的 IPv4</label><input id="robotHost" type="text" placeholder="填写另一台 PC 的地址" autocomplete="off" spellcheck="false"></div><div><label for="robotPort">UDP 端口</label><input id="robotPort" type="number" min="1024" max="65535" value="5005"></div></div>
+            <p class="field-note">填写运行 receiver.py 的电脑地址；EEG Hat 与 Elite 控制器的地址另行配置。</p>
+            <div class="button-row robot-buttons"><button id="robotPreview" class="secondary" type="button">仅预览映射</button><button id="robotTest" class="secondary" type="button">发送 TEST（不动作）</button><button id="robotEnable" class="primary" type="button" disabled>启用机械臂发送</button><button id="robotStop" class="danger-quiet" type="button">停止发送</button></div>
+            <p id="robotAvailability" class="field-note">发送需连接真实设备、加载匹配模型并持续收到数据；演示和回放仅可预览。</p>
+            <p id="robotNotice" class="robot-notice" role="status" aria-live="polite"></p>
+            <p id="robotLastStop" class="robot-last-stop" role="status" aria-live="polite">最近停发：暂无记录</p>
+          </div>
+          <div class="robot-decision">
+            <span class="overline">当前预测 · 直接输出</span><strong id="robotDecision">等待预测</strong>
+            <p id="robotPrediction" class="field-note">等待模型给出类别；置信度仅作展示。</p>
+            <div class="robot-counts"><span>左手 / Elite <b id="robotLeftCount">0</b></span><span>右手 / Piper <b id="robotRightCount">0</b></span><span>静息 <b id="robotRestCount">0</b></span><span>无有效类别 <b id="robotUnknownCount">0</b></span></div>
+            <p id="robotWindow" class="field-note">最近 15 窗仅作统计；每次有效类别直接映射。</p>
+            <dl class="robot-delivery"><div><dt>发送</dt><dd id="robotSent">尚未发送动作指令</dd></div><div><dt>接收端回执</dt><dd id="robotAck">尚无回执</dd></div></dl>
+          </div>
+        </div>
+        <div class="robot-rules"><p>EEG 分类窗 1.5 s、步长 0.1 s；每个有效预测直接映射，置信度、得分差、训练分布告警和最近 15 窗统计仅供参考。静息不发送动作包。接收端沿用 25 s 冷却并等待当前动作结束；持续输出时，冷却结束后可再次触发。</p><p>录制、换模型、断流、硬信号异常、页面失焦或失联会关闭发送，需要重新启用；最近停发原因单独保留。停止发送仅停止后续指令；已开始的动作需在机器人端停止或使用实体急停。</p></div>
+      </section>
+    <section class="online-grid">
+      <div class="card prediction-card">
+        <div class="card-heading"><h2>在线模型预测</h2><span id="predictionBadge" class="tag">未就绪</span></div>
+        <div class="prediction-main"><div><span class="overline">当前识别</span><strong id="predictionLabel">等待模型</strong></div><div class="confidence-number"><strong id="predictionConfidence">—</strong><span>模型置信度</span></div></div>
+        <div class="probability-list"><div><span>静息</span><div class="prob-track"><i id="probRest"></i></div><b id="probRestValue">—</b></div><div><span>左手想象</span><div class="prob-track"><i id="probLeft"></i></div><b id="probLeftValue">—</b></div><div><span>右手想象</span><div class="prob-track"><i id="probRight"></i></div><b id="probRightValue">—</b></div></div>
+        <p id="predictionReason" class="field-note">载入模型并积累有效 EEG 后开始识别。</p>
+        <p id="predictionWarnings" class="quality-warning" hidden></p>
+        <div class="prediction-meta"><span>窗口 <b>1.5 s</b></span><span>步长 <b>0.1 s</b></span><span id="activeModel">未加载模型</span></div>
+      </div>
+      <div class="card prediction-history">
+        <div class="card-heading"><div><h2>窗口预测记录</h2><p>每条记录对应一个信号窗口，按 0.1 秒步长更新。</p></div><span id="predictionCount" class="tag">0 条</span></div>
+        <div class="table-scroll"><table><thead><tr><th>时间窗（秒）</th><th>预测</th><th>置信度</th><th>状态</th></tr></thead><tbody id="predictionRows"><tr><td colspan="4" class="empty-state">暂无预测窗口</td></tr></tbody></table></div>
+      </div>
+    </section>
+    </section>
+
+    <section class="card waveform-card">
+      <div class="card-heading"><div><h2>8 通道信号 <span class="heading-unit">µV</span></h2><p id="waveformCaption">固定顺序：O2 · O1 · P8 · P7 · C4 · C3 · FP1 · FP2</p></div><div class="wave-controls">
+        <label for="waveRowHeight">条带高度<select id="waveRowHeight"><option value="64">64 px</option><option value="96" selected>96 px</option><option value="144">144 px</option><option value="192">192 px</option></select></label>
+        <label for="waveScale">每行量程<select id="waveScale"><option value="auto" selected>自动 · 统一量程</option><option value="25">±25 µV</option><option value="50">±50 µV</option><option value="100">±100 µV</option><option value="250">±250 µV</option><option value="500">±500 µV</option><option value="1000">±1,000 µV</option><option value="2500">±2,500 µV</option><option value="5000">±5,000 µV</option><option value="10000">±10,000 µV</option></select></label><span id="waveSource" class="tag">等待数据</span>
+      </div></div>
+      <p id="waveScaleNote" class="wave-scale-note">八通道统一量程；自动模式按当前可见峰值调整。</p>
+      <div class="wave-container"><canvas id="waveCanvas" aria-label="八通道 EEG 波形和标注时间带" role="img"></canvas><div id="waveEmpty" class="wave-empty">连接演示、真实设备，或载入一份录制</div></div>
+      <div class="wave-legend"><span class="legend-label">录制标注</span><span><i class="legend-color left-color"></i>左手想象</span><span><i class="legend-color right-color"></i>右手想象</span><span><i class="legend-color rest-color"></i>静息</span><span><i class="legend-color unknown-color"></i>间隔 / 未知</span><span class="muted">波形按通道减中位数显示</span></div>
+    </section>
+
+    <details class="event-panel"><summary>运行事件 <span id="eventCount">0</span></summary><ol id="eventList"><li>暂无事件</li></ol></details>
+    <footer><span>本地运行 · 数据保存在本机</span><span>O2 / O1 / P8 / P7 / C4 / C3 / FP1 / FP2</span></footer>
+  </main>
+</body>
+</html>

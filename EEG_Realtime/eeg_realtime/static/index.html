@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>EEG · 通用采集与二分类</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">∿</span><div><strong>EEG REALTIME</strong><span>脑电实时实验台</span></div></div>
+    <div class="header-meta"><span class="pill" id="source-badge">尚未开始</span><span class="connection"><i id="connection-dot"></i><span id="connection-text" aria-live="polite">正在连接本地服务</span></span></div>
+  </header>
+  <main>
+    <section class="intro"><div><p class="eyebrow">ACQUIRE · CALIBRATE · FEEDBACK</p><h1>通用采集与二分类</h1><p>采集、质量检查、频带反馈与个人二分类校准。</p></div><div class="session-status"><span class="small-label">当前会话</span><strong id="session-status">等待开始</strong><span id="session-message">选择数据源后开始采集</span></div></section>
+    <div id="notice" role="status" class="notice" hidden></div>
+    <div class="workspace">
+      <aside class="control-column">
+        <section class="card setup-card">
+          <div class="card-heading"><h2><span class="step">01</span>数据源与采集</h2><span class="tag">LOCAL</span></div>
+          <fieldset id="source-settings">
+            <label for="source">数据来源</label><select id="source"><option value="demo">模拟信号 · 无需设备</option><option value="device">EEG Hat · Wi-Fi 实机</option><option value="replay">已有 CSV · 实时回放</option></select>
+            <p class="help" id="source-help">用模拟节律和状态检查软件流程；真实识别效果需实机验证。</p>
+            <div id="device-options" hidden><label for="device-ip">设备 IPv4（可手填）</label><div class="input-action"><input id="device-ip" placeholder="例如 192.168.137.240" autocomplete="off"><button id="discover" class="button subtle" type="button">发现设备</button></div><div id="devices" class="device-results"></div><p class="help">留空自动搜索，也可填写设备 IP 后点击“开始采集”。电脑与设备需网络互通；请先断开 InBrain 中的设备连接。</p></div>
+            <div id="replay-options" hidden><label for="replay-file">回放文件</label><select id="replay-file"></select><p id="replay-description" class="help">读取配套软件录制文件。</p></div>
+            <div class="form-row"><div><label for="sample-rate">采样率 / Hz</label><select id="sample-rate"><option>250</option><option>500</option><option>1000</option><option>2000</option><option>4000</option><option>8000</option></select></div><div><label for="channel-count">通道数量</label><select id="channel-count"><option>2</option><option>4</option><option>6</option><option selected>8</option></select></div></div>
+            <details class="channel-details"><summary>电极命名与识别通道 <span id="selected-count">8 个已选</span></summary><p class="help">CH 编号不代表电极位置。请按实际接线填写名称，再选择参与特征提取与分类的通道。</p><div id="channel-settings"></div></details>
+            <label for="acquisition-mode">采集模式</label><select id="acquisition-mode"><option value="eeg">正常 EEG 采集</option><option value="impedance">电极阻抗检测</option></select>
+          </fieldset>
+          <div class="button-row"><button id="start" class="button primary" type="button">开始采集</button><button id="stop" class="button secondary" type="button" disabled>停止</button></div>
+          <div class="mode-switch"><button id="switch-mode" class="text-button" type="button" disabled>切换为阻抗检测</button><span>模式切换会重置数据窗口</span></div>
+        </section>
+        <section class="card" id="demo-panel"><div class="card-heading"><h2>模拟信号场景</h2><span class="tag">DEMO</span></div><label for="demo-state">输入状态</label><select id="demo-state"><option value="rest">静息节律</option><option value="a">状态 A · 模拟训练样本</option><option value="b">状态 B · 模拟训练样本</option><option value="saturated">异常 · 满量程饱和</option><option value="flat">异常 · 恒定信号</option><option value="noisy">异常 · 高幅噪声</option></select><p class="help">校准时模拟器自动生成对应类别；也可以主动制造异常，检查反馈是否停止。</p></section>
+        <section class="card recording-card"><div class="card-heading"><h2>录制与事件标记</h2><span id="recording-badge" class="tag">未录制</span></div><div class="button-row"><button id="record-start" class="button secondary" type="button" disabled>开始录制</button><button id="record-stop" class="button subtle" type="button" disabled>结束录制</button></div><label for="marker-label">事件标记</label><div class="input-action"><input id="marker-label" placeholder="例如：睁眼 / 试次开始" maxlength="80"><button id="add-marker" class="button secondary" type="button" disabled>标记</button></div><p id="recording-info" class="help break-word">录制文件保存在本项目的输出目录。</p></section>
+        <details class="card help-card"><summary>开始一次二分类实验</summary><ol><li>按实际接线命名电极并选择通道；先检查信号质量。</li><li>设置两类任务，如左手想象／右手想象。保持身体静止，按屏幕提示执行。</li><li>完成多次交替采集后训练个人模型。失败或污染的窗口不会参与训练。</li><li>检查按试次留出的按试次留出验证结果，再用全新实验验证效果。</li></ol><p>分类依据为个人校准后的频带特征；运动意图识别效果需独立验证，仅用于研究。</p></details>
+      </aside>
+      <div class="main-column">
+        <section class="metric-grid" aria-label="采集概况"><article class="metric"><span>信号质量</span><strong id="quality-summary">等待数据</strong><small id="quality-detail">有效窗口后开启反馈</small></article><article class="metric"><span>距最近数据</span><strong id="data-age">—<em>s</em></strong><small id="sample-count">0 个样本</small></article><article class="metric"><span>丢包 / CRC 异常</span><strong id="packet-errors">0 / 0</strong><small id="packet-count">尚未收到数据包</small></article></section>
+        <section class="card waveform-card"><div class="card-heading"><div><h2>实时脑电波形</h2><p class="help">去中值偏置显示 · 各通道自动缩放 · 原始电压用于质量检查与录制</p></div><span id="waveform-info" class="tag">8 CH / 250 Hz</span></div><div class="canvas-wrap"><canvas id="waveform" aria-label="实时多通道脑电波形"></canvas><div id="waveform-empty" class="canvas-empty"><span class="empty-wave">∿</span><strong>信号将在这里出现</strong><span>从左侧开始模拟、实机采集或文件回放</span></div></div></section>
+        <div class="analysis-grid">
+          <section class="card spectrum-card"><div class="card-heading"><h2>频谱与节律</h2><span id="dominant-band" class="tag">等待分析</span></div><canvas id="spectrum" aria-label="所选通道平均功率谱"></canvas><div id="band-bars" class="band-bars"></div><p class="help">相对频带功率用于描述节律，不直接表示专注、放松或运动意图。</p></section>
+          <section class="card feedback-card"><div class="card-heading"><h2>实时反馈</h2><span id="feedback-status" class="tag">未激活</span></div><div class="feedback-visual"><svg viewBox="0 0 160 160" class="feedback-ring" aria-hidden="true"><circle class="ring-track" cx="80" cy="80" r="65"></circle><circle id="ring-progress" cx="80" cy="80" r="65" class="ring-progress"></circle></svg><div class="feedback-value"><strong id="feedback-value">—</strong><span id="feedback-label">等待有效信号</span></div></div><label for="feedback-target">反馈目标</label><select id="feedback-target"><option value="alpha">α / μ 频带 · 8–13 Hz</option><option value="beta">β 频带 · 13–30 Hz</option><option value="class_b">个人模型 · 类别 B 方向得分</option></select><label for="feedback-threshold" class="range-label"><span>目标阈值</span><output id="threshold-value">50%</output></label><input id="feedback-threshold" type="range" min="0" max="100" value="50" step="1"><p id="feedback-explanation" class="help">信号质量异常、模式不符或数据过期时自动暂停反馈。</p></section>
+        </div>
+        <section class="card quality-card"><div class="card-heading"><h2>通道质量检查</h2><span class="small-label">先检查信号质量，再训练与识别</span></div><div class="table-scroll"><table><thead><tr><th>通道 / 电极</th><th>状态</th><th>RMS / μV</th><th>峰值 / μV</th><th>饱和比例</th><th>工频比例</th><th>阻抗估计</th></tr></thead><tbody id="quality-rows"><tr><td colspan="7" class="empty-cell">等待采集数据</td></tr></tbody></table></div></section>
+        <section class="card calibration-card"><div class="card-heading"><div><h2><span class="step">02</span>个人校准与在线分类</h2><p class="help">自定义两类状态，学习当前用户、当前电极配置下的频带特征。</p></div><span id="model-badge" class="tag">尚无模型</span></div><div class="calibration-layout"><div><fieldset id="calibration-settings"><div class="form-row"><div><label for="label-a">类别 A</label><input id="label-a" value="左手运动想象" maxlength="40"></div><div><label for="label-b">类别 B</label><input id="label-b" value="右手运动想象" maxlength="40"></div></div><div class="form-row"><div><label for="trials">每类试次数</label><select id="trials"><option>4</option><option>6</option><option selected>8</option><option>10</option></select></div><div><label for="trial-seconds">每次任务 / 秒</label><input id="trial-seconds" type="number" min="4" max="30" value="6" step="1"></div></div><p class="help">每次任务前静息 3 秒、提示 1 秒。回放和阻抗模式不支持采集校准标签。</p></fieldset><div class="button-row wrap"><button id="calibration-start" class="button primary" type="button" disabled>开始引导校准</button><button id="calibration-abort" class="button subtle" type="button" disabled>终止校准</button><button id="calibration-train" class="button secondary" type="button" disabled>训练个人模型</button></div></div><div class="cue-box" id="cue-box"><span id="cue-phase" class="small-label">等待校准</span><strong id="cue-label">准备好，跟随提示</strong><div id="cue-countdown">—</div><div class="progress-track"><div id="calibration-progress"></div></div><span id="calibration-detail">请先开始采集并确认信号质量</span></div></div><div class="prediction-panel"><div><span class="small-label">当前在线分类</span><strong id="prediction-label">尚未识别</strong><p id="prediction-reason">完成个人校准与训练后启用</p></div><div class="score-panel"><div class="score-labels"><span id="score-a">类别 A</span><span id="score-b">类别 B</span></div><div class="score-track"><span class="score-center"></span><span id="score-dot"></span></div><span id="prediction-score">方向得分 — · 非概率</span></div></div><div id="model-results" hidden><div class="result-heading"><h3>按试次留出验证</h3><span id="model-context" class="help"></span></div><div class="model-metrics" id="model-metrics"></div><div id="confusion-matrix" class="confusion-matrix"></div><p class="help">按试次留出验证反映本次数据的区分能力；实际效果需用新录制验证。</p></div><div class="model-actions"><button id="model-save" class="button secondary" type="button" disabled>保存个人模型</button><select id="saved-models" aria-label="已保存模型"><option value="">没有已保存模型</option></select><button id="model-load" class="button subtle" type="button" disabled>载入模型</button></div><p id="model-warning" class="help">模型与采样率、通道配置及模式绑定，配置变化后需重新核对或校准。</p></section>
+        <section class="card event-card"><div class="card-heading"><h2>实验事件</h2><span class="small-label">最近事件</span></div><ul id="event-list"><li class="event-empty">采集、质量变化、标记与校准事件会显示在这里。</li></ul></section>
+      </div>
+    </div>
+    <footer><span>EEG HAT / LOCAL RESEARCH WORKSPACE</span><span>所有处理在本机进行 · 不使用云端模型</span></footer>
+  </main>
+</body>
+</html>

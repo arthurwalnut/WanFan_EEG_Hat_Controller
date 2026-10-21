@@ -1,0 +1,2 @@
+/* Shared layout stays in cvep.css; SSVEP uses time-varying grayscale targets. */
+.targets.count-4{max-width:1080px;gap:32px}.target{transition:none;animation:none}.target span{font-size:23px;background:#dce3e0;color:#19312b}.stimulating .target span{font-size:clamp(18px,2.5vw,28px)}header nav a{padding:5px 9px;border-radius:6px}header nav a[aria-current=page]{background:#dceae4;text-decoration:none;font-weight:700}

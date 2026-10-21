@@ -1,0 +1,8 @@
+# Runtime used to verify the new workflow: CPython 3.12.14 on Windows x64.
+numpy==2.5.3
+scipy==1.18.1
+scikit-learn==1.9.1
+joblib==1.6.0
+threadpoolctl==3.7.0
+cloudpickle==3.1.2
+narwhals==2.26.0
