@@ -15,6 +15,8 @@
 
 ## 安装与启动
 
+已有 Windows EXE 时，可直接双击根目录 `EEG_Hat.exe`，无需安装 Python。数据位置、联网和迁移方法见 [EXE 使用说明](EXE使用说明.md)。下面为源码运行方式。
+
 推荐 Windows x64、Python 3.12。在仓库根目录打开 PowerShell：
 
 ```powershell
@@ -64,7 +66,9 @@ EEG_Realtime/                 服务、网页、运行依赖清单
   docs/                      操作和技术说明
 EEG_Signal_to_Decision/       hat / cvep / ssvep 算法模块与 MI 训练 CLI
 robot_pc/                    Linux 机械臂接收器与两个动作脚本
-InBrain/、根目录 EXE / PDF    本机保留的厂商应用与参考资料
+windows_exe/                 Windows EXE 入口与构建配置
+EEG_Hat.exe                  本机生成的单文件程序，不随 Git 提交
+InBrain/、其他 EXE / PDF      本机保留的厂商应用与参考资料
 ```
 
 录制、模型和预测分别位于 `EEG_Realtime/data/` 下的 `mi_*`、`cvep_*`、`ssvep_*` 目录。移动录制时复制整段目录；备份时保留整个 `data/`。模型文件仅加载可信来源。

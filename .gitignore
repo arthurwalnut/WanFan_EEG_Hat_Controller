@@ -34,3 +34,7 @@ Thumbs.db
 /*.pdf
 *.zip
 *.zip.sha256
+
+# Windows executable build intermediates and local acceptance results
+/.build/
+/*.exe.sha256
