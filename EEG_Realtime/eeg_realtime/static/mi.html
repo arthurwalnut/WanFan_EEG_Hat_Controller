@@ -53,6 +53,7 @@
             <p class="field-note">每组为 2 秒十字间隔和 5 秒随机任务；余时不足一组则显示十字。训练需每类至少 6 个有效试次。</p>
             <div class="button-row"><button id="recordButton" type="button" class="primary" disabled>开始录制 <kbd>Space</kbd></button><button id="stopRecordButton" type="button" class="danger-quiet" disabled>结束并保存</button></div>
             <p class="field-note">录制时请保持本页面聚焦；切换窗口或标签页将停止并保留数据。</p>
+            <p class="field-note">孤立丢失 1 包（50 点、0.2 秒）可继续；两次丢包的检测间隔须至少 15 秒。间隔不足或连续丢多包时停止并保存。</p>
             <p id="clockSyncStatus" class="field-note">开始前检查提示时钟；估计的对齐误差超过 50 毫秒时暂不录制。</p>
           </section>
         </div>
@@ -65,6 +66,7 @@
             <span id="cueTrial" class="cue-trial">保持舒适坐姿，注视中央提示</span>
           </div>
           <div class="cue-footer"><span id="recordElapsed">00:00</span><div class="progress-track"><div id="recordProgress"></div></div><span id="recordRemaining">尚未录制</span></div>
+          <p id="recordPacketLoss" class="field-note" role="status" aria-live="polite" hidden></p>
           <div id="focusRecordControls" class="focus-record-controls" hidden><span>录制进行中 · 请保持本页面聚焦</span><button id="focusStopRecordButton" type="button" class="danger-quiet">结束并保存</button></div>
           <p class="timing-note">失焦、画面停顿或提示确认中断时停止录制。标签按浏览器与服务器时钟估计对齐，尚未进行硬件同步测量。</p>
         </section>

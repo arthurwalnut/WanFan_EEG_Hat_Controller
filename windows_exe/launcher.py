@@ -39,6 +39,7 @@ def runtime_check() -> dict:
     import importlib.metadata
     from eeg_realtime import server
     modules = ["eeg_realtime.mi_engine", "eeg_realtime.cvep_engine",
+               "eeg_realtime.mi_gap_export",
                "eeg_realtime.ssvep_engine", "eeg_realtime.robot_bridge",
                "bci.hat_pipeline.model", "bci.cvep_pipeline.model",
                "bci.ssvep_pipeline.model"]

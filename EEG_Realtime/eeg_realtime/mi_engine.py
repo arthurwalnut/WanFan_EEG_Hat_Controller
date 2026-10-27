@@ -33,6 +33,8 @@ from bci.hat_pipeline.processing import raw_quality
 DISPLAY_TIMING_METHOD = "raf-visible-heartbeat-v1"
 MAX_PROCESSING_LAG_S = .25
 DISPLAY_LEASE_S = .6
+PACKET_LOSS_INTERVAL_S = 15.0
+SAMPLES_PER_PACKET = 50
 
 
 def number(value, minimum, maximum, name):
@@ -93,6 +95,7 @@ class MIEngine:
         self.display_last_observed = None
         self.display_last_received = None
         self.record_clock_uncertainty = None
+        self.record_packet_loss = None
         self.validation_threads = []
         self.replay = None
         self.replay_id = None
@@ -278,17 +281,27 @@ class MIEngine:
             self.prediction = unavailable("收到积压数据，等待新鲜连续信号。", "invalid")
             self.message = "收到积压数据，暂停标注，等待新鲜连续信号。"
             return
-        gap = batch.gap or (self.last_sample_at is not None and now - self.last_sample_at > 1.25)
+        timed_out = self.last_sample_at is not None and now - self.last_sample_at > 1.25
+        gap = batch.gap or timed_out
+        sequence_gap = (batch.gap and self.source_kind == "device" and batch.sequence is not None
+                        and len(data) == SAMPLES_PER_PACKET and batch.missing_samples > 0
+                        and batch.missing_samples % SAMPLES_PER_PACKET == 0)
+        stop_after_batch = None
         if gap:
             self.robot.disarm("数据间断，机械臂发送已关闭；恢复后需重新启用。")
             self.stream_stable_since = None
+            if self.recorder:
+                if sequence_gap:
+                    stop_after_batch = self._record_packet_gap(batch, received, timed_out)
+                else:
+                    self._finish_recording("aborted", "录制发生断流或无法确定缺样数量的数据间断，已停止并保存。")
             self.cursor += max(0, int(batch.missing_samples))
             self.segment += 1
             self.anchor = None
-            self.sample_clock.reset()
+            if not sequence_gap:
+                self.sample_clock.reset()
             self.pipeline.reset()
             self.prediction = unavailable("数据间断，重新积累连续窗口。", "invalid")
-            self._finish_recording("aborted", "录制时发生数据间断，本次录制已中止。")
             self._event("数据间断；没有拼接断点两侧的信号。", "warning")
         if not len(data):
             if gap and self.source_kind == "device" and self.status in ("running", "connecting"):
@@ -296,7 +309,8 @@ class MIEngine:
                 self.message = getattr(self.source, "message", "") or "设备数据中断，正在重新连接。"
             return
         indices = np.arange(self.cursor, self.cursor + len(data), dtype=np.int64)
-        sample_times, clock_jump = self.sample_clock.map(indices, received)
+        sample_times, clock_jump = self.sample_clock.map(
+            indices, received, missing_samples=int(batch.missing_samples) if sequence_gap else 0)
         if clock_jump:
             self.robot.disarm("采样时钟重新对齐，机械臂发送已关闭。")
             self.stream_stable_since = None
@@ -336,7 +350,46 @@ class MIEngine:
                 except Exception as exc:
                     self._finish_recording("aborted", f"录制写入失败：{exc}")
                     self._event(f"录制写入失败：{exc}", "error")
+        # Save the received recovery packet as the right-hand real anchor before
+        # ending a too-frequent/multiple-packet-loss recording. No future packet
+        # is awaited and no interpolated sample enters online classification.
+        if stop_after_batch and self.recorder:
+            self._finish_recording("aborted", stop_after_batch)
         self._push_predictions(data, indices, relative, self.segment)
+
+    def _record_packet_gap(self, batch, received, timed_out):
+        stats = self.record_packet_loss
+        previous = stats.get("last_detected_monotonic")
+        interval = None if previous is None else received - previous
+        missing = int(batch.missing_samples)
+        packets = missing // SAMPLES_PER_PACKET
+        reason = None
+        if timed_out:
+            reason = "设备数据超时，已停止录制并保存。"
+        elif packets != 1:
+            reason = f"一次连续丢失 {packets} 包；仅允许孤立单包丢失，已停止录制并保存。"
+        elif interval is not None and interval < PACKET_LOSS_INTERVAL_S:
+            reason = "距上次丢包不足 15 秒；已停止录制并保存。"
+        gap_id = stats["events"] + 1
+        self.recorder.event("packet_loss", {
+            "gap_id": gap_id, "missing_samples": missing, "missing_packets": packets,
+            "missing_start_index": self.cursor, "next_sample_index": self.cursor + missing,
+            "detected_s": max(0, received - self.record_start), "detected_monotonic": received,
+            "allowed": reason is None, "interval_since_previous_s": interval,
+            "minimum_interval_s": PACKET_LOSS_INTERVAL_S})
+        stats.update(events=gap_id, last_gap_id=gap_id, last_detected_monotonic=received,
+                     lost_packets=stats["lost_packets"] + packets,
+                     missing_samples=stats["missing_samples"] + missing,
+                     tolerated_events=stats["tolerated_events"] + int(reason is None))
+        if reason is None:
+            self._event("丢失 1 包（50 点），录制继续；15 秒内再次丢包将停止。结束后另存均值补齐文件。", "warning")
+        return reason
+
+    def _packet_loss_state(self, now):
+        stats = self.record_packet_loss or {}
+        last = stats.get("last_detected_monotonic")
+        return {**{key: value for key, value in stats.items() if key != "last_detected_monotonic"},
+                "next_allowed_in_s": max(0, PACKET_LOSS_INTERVAL_S - (now - last)) if last is not None else 0}
 
     def _push_predictions(self, data, indices, times, segment):
         items = self.pipeline.push(data, indices, times, segment=segment)
@@ -401,6 +454,11 @@ class MIEngine:
                                                  "clock_method": CLOCK_METHOD,
                                                  "device_time_estimate": self.last_sample_time,
                                                  "next_sample_index": self.cursor})
+                recorder.manifest["packet_loss_policy"] = {
+                    "minimum_interval_s": PACKET_LOSS_INTERVAL_S, "max_packets_per_event": 1,
+                    "clock": "received_monotonic", "interpolation": "endpoint_channel_mean",
+                    "raw_file": "samples.csv", "filled_file": "samples_filled.csv"}
+                _atomic_manifest(recorder.path / "manifest.json", recorder.manifest)
             except Exception:
                 try:
                     recorder.close(status="error", reason="记录时钟信息失败。")
@@ -412,6 +470,10 @@ class MIEngine:
             self.display_last_observed = None
             self.display_last_received = None
             self.record_clock_uncertainty = uncertainty
+            self.record_packet_loss = {"minimum_interval_s": PACKET_LOSS_INTERVAL_S,
+                                       "events": 0, "tolerated_events": 0, "lost_packets": 0,
+                                       "missing_samples": 0, "last_gap_id": None,
+                                       "last_detected_monotonic": None}
             self._event(f"开始三类提示录制：{self.recorder.id}，{duration:g} 秒。")
             return {"ok": True, "recording": self._recording_state(self.record_start),
                     "server_time": time.monotonic()}
@@ -505,6 +567,7 @@ class MIEngine:
         self._event(reason, "info" if status == "complete" else "warning")
         if closed_ok:
             self.last_recording["validation"] = {"status": "checking", "id": recorder.id,
+                                                "gap_fill": {"status": "pending" if (self.record_packet_loss or {}).get("events") else "not_needed"},
                                                 "message": "文件已保存，正在检查时序与可训练窗口。"}
             worker = threading.Thread(target=self._validate_recording, args=(recorder.path, recorder.id),
                                       daemon=True, name="MI-recording-check")
@@ -516,7 +579,15 @@ class MIEngine:
                                                 "message": "文件关闭失败，不能确认录制有效。"}
 
     def _validate_recording(self, path, identifier):
+        from .mi_gap_export import export_gap_filled
+        gap_fill = None
         try:
+            # Export after close, outside the acquisition lock. The source CSV
+            # and the model's training/online inputs remain real samples only.
+            try:
+                gap_fill = export_gap_filled(path)
+            except Exception as exc:
+                gap_fill = {"status": "error", "output_file": None, "errors": [str(exc)]}
             session = load_session(path)
             try:
                 dataset = build_dataset([session])
@@ -524,6 +595,7 @@ class MIEngine:
             except DatasetBuildError as exc:
                 diagnostics = exc.diagnostics
             report = {"status": "checked", "id": identifier, "sample_count": len(session["samples"]),
+                      "gap_fill": gap_fill,
                       "display_audit": session["metadata"].get("display_audit", {}),
                       "timestamp_audit": session["metadata"].get("timestamp_audit", {}),
                       "diagnostics": diagnostics,
@@ -531,7 +603,8 @@ class MIEngine:
                                   else "已保存，但没有可训练试次；请查看时序与质量排除原因。")}
             _atomic_manifest(path / "validation.json", report)
         except Exception as exc:
-            report = {"status": "error", "id": identifier, "message": f"录制检查失败：{exc}"}
+            report = {"status": "error", "id": identifier, "gap_fill": gap_fill,
+                      "message": f"录制检查失败：{exc}"}
         with self.lock:
             if self.last_recording.get("id") == identifier:
                 self.last_recording["validation"] = report
@@ -543,6 +616,7 @@ class MIEngine:
         elapsed = min(duration, max(0, now - self.record_start))
         phase = next((p for p in self.recorder.plan if p["start_s"] <= elapsed < p["end_s"]), None)
         return {"active": True, "id": self.recorder.id, "duration_s": duration,
+                "packet_loss": self._packet_loss_state(now),
                 "elapsed_s": elapsed, "remaining_s": max(0, duration - elapsed),
                 "start_time": self.record_start, "plan": self.recorder.plan,
                 "phase": phase["phase"] if phase else "interval",

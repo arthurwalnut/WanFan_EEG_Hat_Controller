@@ -26,8 +26,10 @@ class ReceiptSampleClock:
         self.last_receipt = None
         self.last_index = None
 
-    def map(self, indices, received):
+    def map(self, indices, received, *, missing_samples=0):
         indices = np.asarray(indices, dtype=np.int64)
+        if isinstance(missing_samples, bool) or not isinstance(missing_samples, (int, np.integer)) or missing_samples < 0:
+            raise ValueError("Missing sample count must be a nonnegative integer")
         if indices.ndim != 1 or not len(indices) or np.any(np.diff(indices) != 1):
             raise ValueError("Clock requires consecutive nonempty sample indices")
         if not math.isfinite(received) or received < 0:
@@ -43,18 +45,20 @@ class ReceiptSampleClock:
         if self.last_time is None:
             times = target_end - np.arange(len(indices) - 1, -1, -1) / self.sample_rate
         else:
-            spacing = (target_end - self.last_time) / len(indices)
+            # A verified sequence gap advances the original clock by the missing
+            # sample count. Do not re-anchor the cue timeline at packet arrival.
+            spacing = (target_end - self.last_time) / (len(indices) + missing_samples)
             # Normal drift adjustments stay below the decoder's 25% timestamp
             # gap limit. Bursts/large jumps are explicit discontinuities instead
             # of reversing time or silently shifting an ongoing trial's labels.
-            if (indices[0] != self.last_index + 1 or
+            if (indices[0] != self.last_index + 1 + missing_samples or
                     not .8 / self.sample_rate <= spacing <= 1.2 / self.sample_rate):
                 discontinuity = True
                 self.reset()
                 self.offsets.append((received, received - nominal_end))
                 times = received - np.arange(len(indices) - 1, -1, -1) / self.sample_rate
             else:
-                times = self.last_time + np.arange(1, len(indices) + 1) * spacing
+                times = self.last_time + np.arange(missing_samples + 1, missing_samples + len(indices) + 1) * spacing
         self.last_time = float(times[-1])
         self.last_receipt = received
         self.last_index = int(indices[-1])

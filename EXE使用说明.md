@@ -1,6 +1,6 @@
 # EEG Hat EXE 使用说明
 
-`EEG_Hat.exe` 是 Windows x64 单文件版本，内含 Python 和运行依赖，无需安装 Python。保留运动想象、c-VEP、SSVEP、通用二分类和 EEG 侧机械臂指令发送功能。
+`WanFanEEGHatController.exe` 是 Windows x64 单文件版本，内含 Python 和运行依赖，无需安装 Python。保留运动想象、c-VEP、SSVEP、通用二分类和 EEG 侧机械臂指令发送功能。
 
 ## 启动与退出
 
@@ -13,8 +13,8 @@
 在 PowerShell 中可选择其他端口或仅检查环境：
 
 ```powershell
-.\EEG_Hat.exe --port 8766
-.\EEG_Hat.exe --check
+.\WanFanEEGHatController.exe --port 8766
+.\WanFanEEGHatController.exe --check
 ```
 
 ## 数据与已有模型
@@ -29,7 +29,7 @@
 指定其他工作区：
 
 ```powershell
-.\EEG_Hat.exe --workspace 'D:\EEG实验' --port 8766
+.\WanFanEEGHatController.exe --workspace 'D:\EEG实验' --port 8766
 ```
 
 该命令写入 `D:\EEG实验\EEG_Realtime\data`。指定工作区时，端口被占用会报错，不会改用已有服务。不同实例不要同时连接同一帽子或写入同一数据目录。
@@ -43,7 +43,7 @@
 仅当使用 Windows 默认热点 `192.168.137.1/24` 时，可在 EXE 所在目录用**管理员 PowerShell**运行：
 
 ```powershell
-$eegExe = (Resolve-Path -LiteralPath '.\EEG_Hat.exe').Path
+$eegExe = (Resolve-Path -LiteralPath '.\WanFanEEGHatController.exe').Path
 New-NetFirewallRule -Name 'EEG-Hat-EXE-Hotspot-UDP' -DisplayName 'EEG Hat EXE hotspot UDP' `
   -Direction Inbound -Action Allow -Enabled True -Profile Public,Private `
   -Program $eegExe -Protocol UDP -LocalAddress 192.168.137.1 -LocalPort 3333,3334 `
@@ -66,6 +66,6 @@ py -3.12 -m venv .build\python
 .\.build\python\Scripts\python.exe -B windows_exe\build.py
 ```
 
-输出为 `.build/output/EEG_Hat.exe`。本机已有 `.packages` 时，构建器优先使用它并核对版本；源码打包范围由 `windows_exe/EEG_Hat.spec` 明确列出，不包含录制、模型、厂商应用或机器配置。
+输出为 `.build/output/WanFanEEGHatController.exe`。本机已有 `.packages` 时，构建器优先使用它并核对版本；源码打包范围由 `windows_exe/EEG_Hat.spec` 明确列出，不包含录制、模型、厂商应用或机器配置。
 
 资源与持久数据分开定位的依据见 [PyInstaller 运行时说明](https://pyinstaller.org/en/stable/runtime-information.html)。

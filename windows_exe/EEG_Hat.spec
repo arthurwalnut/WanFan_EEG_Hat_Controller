@@ -29,6 +29,6 @@ a = Analysis(
 pyz = PYZ(a.pure)
 exe = EXE(
     pyz, a.scripts, a.binaries, a.datas, [],
-    name="EEG_Hat", debug=False, strip=False, upx=False, console=True,
+    name="WanFanEEGHatController", debug=False, strip=False, upx=False, console=True,
     disable_windowed_traceback=False,
 )

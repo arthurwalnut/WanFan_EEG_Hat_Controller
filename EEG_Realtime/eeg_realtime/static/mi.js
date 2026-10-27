@@ -579,6 +579,7 @@
     $("dataAge").textContent = state.source === "replay" ? "回放" : finite(telemetry.age_s) ? `${fmt(telemetry.age_s, 1)} s 前` : "—";
     $("recordBadge").textContent = state.recording?.active ? "录制中" : state.recording?.id ? "已保存" : "待开始";
     $("recordBadge").className = `tag${state.recording?.active ? " active" : ""}`;
+    renderRecordingPacketLoss(state.recording);
     const playback = state.playback || {};
     if (!app.seeking) {
       $("replaySeek").max = Math.max(.02, playback.duration_s || .02);
@@ -600,6 +601,47 @@
     app.waveDirty = true;
   }
 
+  function renderRecordingPacketLoss(recording) {
+    const node = $("recordPacketLoss"), loss = recording?.packet_loss;
+    node.hidden = !recording?.id || !loss;
+    if (node.hidden) return;
+    const count = (value) => Number.isInteger(value) && value >= 0 ? value : 0;
+    const events = count(loss.events), tolerated = count(loss.tolerated_events);
+    const remaining = finite(loss.next_allowed_in_s) ? Math.max(0, Math.ceil(loss.next_allowed_in_s)) : 0;
+    let text = events ? `本次丢包 ${events} 次、${count(loss.lost_packets)} 包；已继续录制 ${tolerated} 次。` : "本次录制尚未检测到丢包。";
+    if (recording.active && events) text += remaining > 0 ? ` 单包容忍间隔剩余 ${remaining} 秒。` : " 单包容忍间隔已满足。";
+    if (!recording.active) text += " 录制已结束。";
+    if (node.textContent !== text) node.textContent = text;
+    node.className = `field-note${events ? " diagnostic-warning" : ""}`;
+  }
+
+  function renderGapFill(gapFill, details) {
+    if (!gapFill || typeof gapFill !== "object") return;
+    const count = (value) => Array.isArray(value) ? value.length : Number.isInteger(value) && value >= 0 ? value : null;
+    const shown = (value) => count(value) === null ? "—" : count(value).toLocaleString();
+    details.append(element("h3", "缺口补齐副本"));
+    if (gapFill.status === "not_needed") {
+      details.append(element("p", "没有需补齐的缺口，未生成 samples_filled.csv。", "field-note"));
+      return;
+    }
+    if (gapFill.status === "pending") {
+      details.append(element("p", "正在生成补齐副本；原始 samples.csv 已保留。", "field-note"));
+    } else if (gapFill.status === "error") {
+      details.append(element("p", "补齐副本生成失败；原始 samples.csv 仍保留。", "diagnostic-warning"));
+    } else if (gapFill.output_file) {
+      details.append(element("p", `补齐副本：${gapFill.output_file}。原始 ${shown(gapFill.raw_sample_count)} 点，补入 ${shown(gapFill.filled_sample_count)} 点，共 ${shown(gapFill.total_sample_count)} 点。`));
+    } else {
+      details.append(element("p", "尚未生成补齐副本；原始 samples.csv 已保留。", "field-note"));
+    }
+    if (count(gapFill.filled_gaps) !== null || count(gapFill.unfilled_gaps) !== null) {
+      details.append(element("p", `已补齐 ${shown(gapFill.filled_gaps)} 个缺口；未补齐 ${shown(gapFill.unfilled_gaps)} 个。`, count(gapFill.unfilled_gaps) > 0 ? "diagnostic-warning" : "field-note"));
+    }
+    for (const error of Array.isArray(gapFill.errors) ? gapFill.errors : []) {
+      details.append(element("p", String(error), "diagnostic-warning"));
+    }
+    details.append(element("p", "补点使用缺口两端样本的逐通道均值，属于估算值。回放和训练仍使用原始 samples.csv，含缺口的任务继续排除；处理记录见 gap_fill.json。", "field-note"));
+  }
+
   function renderRecordingValidation(validation) {
     const panel = $("recordingValidation");
     panel.hidden = isRecording() || !validation;
@@ -612,6 +654,7 @@
     const retained = finite(diagnostics.accepted_trials) ? diagnostics.accepted_trials : 0;
     $("recordingValidationStatus").textContent = status === "checking" ? "正在检查" : status === "error" ? "检查失败" : retained > 0 ? "检查完成" : "无可训练试次";
     details.append(element("p", validation.message || (status === "checking" ? "正在读取原始记录并核对时序、提示和信号。" : status === "error" ? "检查未完成，请查看错误说明。" : "已完成录制数据检查。")));
+    renderGapFill(validation.gap_fill, details);
     if (status !== "checked") return;
     details.append(element("p", `采集 ${finite(validation.sample_count) ? validation.sample_count.toLocaleString() : "—"} 点 · 保留 ${retained} 个试次、${diagnostics.accepted_windows || 0} 个训练窗口。`));
     const table = element("table", undefined, "diagnostic-table");
