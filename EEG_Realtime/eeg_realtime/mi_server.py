@@ -14,12 +14,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
 from .sources import discover_devices
+from .mi_test_job import handle_evaluation_get
 
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = Path(__file__).resolve().parent / "static"
 MAX_BODY = 65536
 STATIC_FILES = {"/": "mi.html", "/mi": "mi.html", "/mi.html": "mi.html",
                 "/mi.js": "mi.js", "/mi.css": "mi.css",
+                "/mi-evaluation.js": "mi-evaluation.js",
                 "/robot-ui.js": "robot-ui.js", "/robot-ui.css": "robot-ui.css"}
 
 
@@ -132,6 +134,8 @@ class MIHandler(BaseHTTPRequestHandler):
                             "sample_rate": 250, "version": "2.0.0", "workbenches": ["mi"]})
             elif path == "/api/mi/state":
                 self._json(self.server.engine.snapshot())
+            elif handle_evaluation_get(self, self.server.engine.evaluation):
+                pass
             elif path == "/api/mi/predictions":
                 after = int(parse_qs(urlsplit(self.path).query).get("after", ["0"])[0])
                 self._json(self.server.engine.prediction_records(after))
@@ -229,6 +233,13 @@ class MIHandler(BaseHTTPRequestHandler):
             "/api/mi/replay/load": lambda: engine.load_replay(body.get("id")),
             "/api/mi/replay/control": lambda: engine.replay_control(body),
             "/api/mi/train": lambda: engine.train(body),
+            "/api/mi/evaluation/start": lambda: engine.start_evaluation(body),
+            "/api/mi/evaluation/cancel": lambda: engine.evaluation.cancel(body.get("id")),
+            "/api/mi/recordings/delete-preview": lambda: engine.preview_recording_deletion(body),
+            "/api/mi/recordings/delete": lambda: engine.delete_recordings(body),
+            "/api/mi/library/update": lambda: engine.update_library(body),
+            "/api/mi/models/delete-preview": lambda: engine.preview_model_deletion(body),
+            "/api/mi/models/delete": lambda: engine.delete_models(body),
             "/api/mi/model/load": lambda: engine.load_model(body.get("id")),
             "/api/mi/robot/configure": lambda: engine.robot_configure(body),
             "/api/mi/robot/heartbeat": lambda: engine.robot_heartbeat(body),

@@ -17,13 +17,14 @@ def main(argv=None):
     train.add_argument("--output", required=True, help="New .joblib model path; existing files are not overwritten")
     train.add_argument("--feature", choices=("bandpower", "csp", "combined"), default="bandpower")
     train.add_argument("--classifier", choices=("lda", "svm"), default="lda")
+    train.add_argument("--use-filled", action="store_true", help="Reconstruct verified packet gaps with endpoint means before training")
     args = parser.parse_args(argv)
     realtime = Path(__file__).resolve().parents[4] / "EEG_Realtime"
     if str(realtime) not in sys.path:
         sys.path.insert(0, str(realtime))
     from eeg_realtime.mi_recording import load_session
     from .model import train_model, save_model
-    sessions = [load_session(Path(path)) for path in args.recordings]
+    sessions = [load_session(Path(path), use_filled=args.use_filled) for path in args.recordings]
     model = train_model(sessions, feature=args.feature, classifier=args.classifier)
     output = save_model(model, args.output)
     print(json.dumps({"model": str(output.resolve()), "source": model["source"], "metrics": model["metrics"]}, ensure_ascii=False, indent=2))

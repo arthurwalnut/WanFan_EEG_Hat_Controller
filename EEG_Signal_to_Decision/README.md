@@ -20,4 +20,6 @@
 
 `--recordings` 后可接多段完整录制目录；`--feature` 可选 `bandpower`、`csp`、`combined`，`--classifier` 可选 `lda`、`svm`。输出路径必须未被使用。
 
+`--use-filled` 为可选参数：启用后从原始记录重建可确认丢包的均值补点，用于本次训练与评估；默认关闭，原始文件保持不变。
+
 此入口生成模型及结果摘要，供脚本使用；网页训练会自动登记模型列表。数据筛选、划分和质量规则见 [运动想象工作流](../EEG_Realtime/docs/MI_WORKFLOW.md)。

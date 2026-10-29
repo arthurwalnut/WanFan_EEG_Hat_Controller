@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="/mi.css">
   <link rel="stylesheet" href="/robot-ui.css">
   <script src="/robot-ui.js" defer></script>
+  <script src="/mi-evaluation.js" defer></script>
   <script src="/mi.js" defer></script>
 </head>
 <body>
@@ -23,7 +24,8 @@
       <button type="button" class="tab active" data-tab="acquisition" aria-selected="true" role="tab" aria-controls="acquisitionPane" id="acquisitionTab"><span>01</span> 采集与提示</button>
       <button type="button" class="tab" data-tab="replay" aria-selected="false" role="tab" aria-controls="replayPane" id="replayTab"><span>02</span> 数据回放</button>
       <button type="button" class="tab" data-tab="training" aria-selected="false" role="tab" aria-controls="trainingPane" id="trainingTab"><span>03</span> 模型训练</button>
-      <button type="button" class="tab" data-tab="robot" aria-selected="false" role="tab" aria-controls="robotPane" id="robotTab"><span>04</span> 在线识别与机械臂</button>
+      <button type="button" class="tab" data-tab="evaluation" aria-selected="false" role="tab" aria-controls="evaluationPane" id="evaluationTab"><span>04</span> 模型测试</button>
+      <button type="button" class="tab" data-tab="robot" aria-selected="false" role="tab" aria-controls="robotPane" id="robotTab"><span>05</span> 在线识别与机械臂</button>
     </nav>
 
     <section id="acquisitionPane" class="tab-pane" role="tabpanel" aria-labelledby="acquisitionTab">
@@ -86,17 +88,30 @@
         <div class="playback-controls"><button id="playReplayButton" type="button" class="primary" disabled>播放</button><button id="pauseReplayButton" type="button" class="secondary" disabled>暂停</button><label class="speed-control" for="replaySpeed">倍速<select id="replaySpeed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select></label><div class="replay-current"><span>当前录制标注</span><b id="replayLabel">—</b><small id="replayTrial"></small></div></div>
         <label class="sr-only" for="replaySeek">回放进度（秒）</label><input id="replaySeek" class="seek-slider" type="range" min="0" max="1" step="0.02" value="0" disabled>
         <div class="timeline-ends"><span id="replayPosition">00:00.0</span><span id="replayDuration">00:00.0</span></div>
+        <div class="replay-model-result">
+          <div class="card-heading"><div><h3>回放中的模型预测</h3><p>已加载模型时，播放同步显示逐窗分类。整段测试可在“04 模型测试”中一次完成选择和评估。</p></div><button id="chooseReplayModel" type="button" class="secondary small">打开模型测试</button></div>
+          <p id="replayModelName" class="field-note">尚未加载模型。</p>
+          <div class="replay-prediction"><span>模型预测 <b id="replayPredictionLabel">—</b></span><span>置信度 <b id="replayPredictionConfidence">—</b></span><span id="replayPredictionStatus" class="tag">等待回放</span></div>
+          <p id="replayPredictionReason" class="field-note">播放后显示分类结果；录制标注与模型预测分别展示。</p>
+          <p class="field-note">回放使用原始数据。播放或跳转后约需 3.5 秒连续信号预热；整段准确率、混淆矩阵和全部窗口结果见“04 模型测试”。</p>
+        </div>
       </section>
     </section>
 
     <section id="trainingPane" class="tab-pane" role="tabpanel" aria-labelledby="trainingTab" hidden>
       <div class="training-grid">
         <section class="card">
-          <div class="card-heading"><div><h2>选择训练数据</h2><p>优先按整次录制划分训练、校准和测试集，仅使用完整有效的任务窗口。</p></div><button id="refreshTrainingButton" type="button" class="secondary small">刷新</button></div>
+          <div class="card-heading"><div><h2>选择已录制的数据</h2><p>优先按整次录制划分训练、校准和测试集，仅使用通过检查的任务窗口。</p></div><button id="refreshTrainingButton" type="button" class="secondary small">刷新</button></div>
+          <label for="recordingSearch">搜索录制</label><input id="recordingSearch" type="search" placeholder="输入编号、录制名称或日期" autocomplete="off" spellcheck="false">
+          <p id="recordingSearchCount" class="field-note" aria-live="polite">共 0 次录制</p>
           <div id="trainingSessions" class="session-list"><p class="empty-state">录制完成后，数据会出现在这里。</p></div>
+          <div class="button-row session-actions"><span id="selectedSessions" class="field-note" aria-live="polite">已选 0 次录制</span><button id="clearRecordingSelection" type="button" class="secondary small" disabled>清空选择</button><button id="renameRecordingButton" type="button" class="secondary small" disabled>重命名</button><button id="deleteRecordingsButton" type="button" class="danger-quiet small" disabled>删除选中录制</button></div>
+          <p id="deleteRecordingsHint" class="field-note">删除前会列出全部选中文件，请再次确认。已训练模型保留。</p>
           <div class="two-fields"><div><label for="featureSelect">特征</label><select id="featureSelect"><option value="csp">CSP · 6 维空间特征</option><option value="bandpower">8–30 Hz 频带功率 · 8 维</option><option value="combined">CSP + 频带功率 · 14 维</option></select></div><div><label for="classifierSelect">分类器</label><select id="classifierSelect"><option value="lda">LDA</option><option value="svm">线性 SVM</option></select></div></div>
+          <label class="training-fill-option"><input id="useFilledData" type="checkbox" aria-describedby="useFilledDataHint"><span>使用补齐数据训练</span></label>
+          <p id="useFilledDataHint" class="field-note">默认关闭，仅使用原始数据。开启后，全部选中录制中的可补齐丢包缺口使用两端均值补点；无丢包数据保持原样，时序与质量检查仍适用。</p>
           <div class="processing-note"><b>预处理与特征</b><p>平均参考（CAR） → 50 / 100 Hz 陷波 → 1–40 Hz 带通 → 375 点窗口 / 25 点步长。</p><p>固定 250 Hz，对应 1.5 秒窗口、0.1 秒步长。频带功率使用 8–30 Hz 单带多窗谱估计（multitaper）与 log10，每通道 1 维；组合特征为 6 维 CSP + 8 维频带功率。</p><p>原始信号的直流偏置和大幅度仅提示告警；无效数值、饱和及平线会被剔除。</p></div>
-          <div class="button-row"><button id="trainButton" type="button" class="primary">训练三分类模型</button><button id="stopForTrainingButton" type="button" class="secondary" hidden>先停止采集</button><span id="selectedSessions" class="field-note">已选 0 次录制</span></div>
+          <div class="button-row"><button id="trainButton" type="button" class="primary">训练三分类模型</button><button id="stopForTrainingButton" type="button" class="secondary" hidden>先停止采集</button></div>
           <p id="trainingMessage" class="field-note" aria-live="polite">建议同一受试者、同一电极配置的数据共同训练。实机数据与演示数据不能混用。</p>
         </section>
         <section class="card">
@@ -110,8 +125,46 @@
           <label for="modelSelect">已保存模型</label>
           <div class="input-action"><select id="modelSelect"><option value="">暂无模型</option></select><button id="loadModelButton" type="button" class="secondary">加载</button></div>
           <p id="modelDetails" class="field-note">采集与回放均可使用匹配数据来源的模型。</p>
+          <div class="divider"></div>
+          <h3>模型管理</h3>
+          <label for="modelSearch">搜索模型</label><input id="modelSearch" type="search" placeholder="输入名称、算法或日期" autocomplete="off" spellcheck="false">
+          <p id="modelSearchCount" class="field-note" aria-live="polite">共 0 个模型</p>
+          <div id="modelLibrary" class="session-list"><p class="empty-state">训练完成后，模型会出现在这里。</p></div>
+          <div class="button-row session-actions"><span id="selectedModels" class="field-note" aria-live="polite">已选 0 个模型</span><button id="clearModelSelection" type="button" class="secondary small" disabled>清空选择</button><button id="renameModelButton" type="button" class="secondary small" disabled>重命名</button><button id="deleteModelsButton" type="button" class="danger-quiet small" disabled>删除选中模型</button></div>
+          <p id="modelLibraryHint" class="field-note">选中一个条目可重命名，点击星星收藏或取消收藏；删除前需再次确认。</p>
         </section>
       </div>
+    </section>
+
+    <section id="evaluationPane" class="tab-pane" role="tabpanel" aria-labelledby="evaluationTab" hidden>
+      <section class="card">
+        <div class="card-heading"><div><h2>用已有模型测试录制数据</h2><p>选择模型与录制，直接得到整段结果，无需加载模型或播放回放。</p></div><button id="refreshEvaluationButton" type="button" class="secondary small">刷新列表</button></div>
+        <div class="evaluation-selection-grid">
+          <div><h3>1. 选择一个模型</h3><label for="evaluationModelSearch">搜索模型</label><input id="evaluationModelSearch" type="search" placeholder="输入名称、算法或日期" autocomplete="off"><p id="evaluationModelCount" class="field-note"></p><div id="evaluationModels" class="session-list evaluation-list"><p class="empty-state">暂无模型</p></div><p id="evaluationModelChoice" class="field-note">尚未选择模型。</p></div>
+          <div><h3>2. 选择测试录制</h3><label for="evaluationRecordingSearch">搜索录制</label><input id="evaluationRecordingSearch" type="search" placeholder="输入名称、受试者或日期" autocomplete="off"><p id="evaluationRecordingCount" class="field-note"></p><div id="evaluationRecordings" class="session-list evaluation-list"><p class="empty-state">暂无录制</p></div><div class="button-row session-actions"><span id="evaluationSelectedCount" class="field-note">已选 0 / 50 次录制</span><button id="evaluationClearSelection" type="button" class="secondary small">清空选择</button></div></div>
+        </div>
+        <p class="field-note">固定使用原始数据，窗口 1.5 秒、步长 0.1 秒；沿用保存的预处理、特征与分类器。测试不会重新训练或发送机械臂指令。</p>
+        <div class="button-row"><button id="startEvaluationButton" type="button" class="primary">开始测试</button><button id="cancelEvaluationButton" type="button" class="danger-quiet" disabled>取消测试</button><span id="evaluationStatus" class="tag">待开始</span></div>
+        <progress id="evaluationProgress" class="evaluation-progress" value="0" max="1" aria-label="模型测试进度" hidden></progress>
+        <p id="evaluationMessage" class="field-note" role="status" aria-live="polite">选择一个模型和 1–50 次录制。</p>
+        <p id="evaluationError" class="quality-warning" role="alert" hidden></p>
+      </section>
+      <section id="evaluationResults" class="card evaluation-results" hidden>
+        <div class="card-heading"><div><h2>本次测试结果</h2><p id="evaluationResultContext"></p></div><div class="evaluation-exports"><a id="evaluationExportJson" class="secondary small" download>导出汇总 JSON</a><a id="evaluationExportCsv" class="secondary small" download>导出全部窗口 CSV</a></div></div>
+        <div id="evaluationProvenance"></div>
+        <div id="evaluationMetricCards" class="metric-cards evaluation-metric-cards"></div>
+        <p id="evaluationScoreNote" class="field-note"></p>
+        <div class="evaluation-matrices"><div id="evaluationWindowMatrix"></div><div id="evaluationTrialMatrix"></div></div>
+        <h3 class="evaluation-section-heading">每类结果</h3><p class="field-note">Precision 为预测该类时的准确比例；Recall 为该类被识别出的比例；F1 综合两者。没有对应分母时显示“—”。</p><div id="evaluationClassMetrics" class="diagnostic-table-wrap"></div>
+        <h3 class="evaluation-section-heading">录制与窗口检查</h3><div id="evaluationCounts"></div><div id="evaluationRecordingMetrics" class="diagnostic-table-wrap"></div>
+        <details class="diagnostic-details"><summary>本次测试使用的模型与录制</summary><div id="evaluationInputs" class="diagnostic-recordings"></div></details>
+        <div id="evaluationLimitations" class="field-note"></div>
+      </section>
+      <section id="evaluationWindows" class="card evaluation-results" hidden>
+        <div class="card-heading"><div><h2>全部窗口结果</h2><p>包含无法评分的窗口；概率顺序为静息、左手、右手。</p></div><span id="evaluationWindowCount" class="tag">0 条</span></div>
+        <div class="evaluation-window-scroll"><table class="evaluation-window-table"><thead><tr><th>录制 / 试次</th><th>时间窗（秒）</th><th>原标注</th><th>预测</th><th>置信度</th><th>静息概率</th><th>左手概率</th><th>右手概率</th><th>评分 / 告警</th></tr></thead><tbody id="evaluationWindowRows"></tbody></table></div>
+        <div class="button-row evaluation-pagination"><button id="evaluationPreviousPage" type="button" class="secondary small">上一页</button><span id="evaluationPagePosition" class="field-note">每页 50 条</span><button id="evaluationNextPage" type="button" class="secondary small">下一页</button></div>
+      </section>
     </section>
 
     <section id="robotPane" class="tab-pane" role="tabpanel" aria-labelledby="robotTab" hidden>
@@ -165,5 +218,19 @@
     <details class="event-panel"><summary>运行事件 <span id="eventCount">0</span></summary><ol id="eventList"><li>暂无事件</li></ol></details>
     <footer><span>本地运行 · 数据保存在本机</span><span>O2 / O1 / P8 / P7 / C4 / C3 / FP1 / FP2</span></footer>
   </main>
+  <dialog id="deleteRecordingsDialog" class="delete-recordings-dialog" aria-labelledby="deleteRecordingsTitle" aria-describedby="deleteRecordingsSummary">
+    <h2 id="deleteRecordingsTitle">确认删除录制数据</h2>
+    <p id="deleteRecordingsSummary" class="field-note"></p>
+    <p id="deleteLibraryWarning" class="delete-warning">以下录制目录及所列文件将从本机永久删除，无法在页面中恢复。已训练模型保留。</p>
+    <div id="deleteRecordingsFiles" class="delete-recordings-files"></div>
+    <div class="button-row"><button id="cancelDeleteRecordings" type="button" class="secondary" autofocus>取消</button><button id="confirmDeleteRecordings" type="button" class="danger-quiet">确认永久删除</button></div>
+  </dialog>
+  <dialog id="renameLibraryDialog" class="delete-recordings-dialog rename-library-dialog" aria-labelledby="renameLibraryTitle" aria-describedby="renameLibraryNote">
+    <h2 id="renameLibraryTitle">重命名</h2>
+    <p id="renameLibraryItem" class="field-note"></p>
+    <label for="libraryNameInput">显示名称</label><input id="libraryNameInput" type="text" maxlength="80" autocomplete="off" placeholder="留空恢复默认名称">
+    <p id="renameLibraryNote" class="field-note">最多 80 个字符，留空恢复默认名称。仅修改显示名称，原始文件名、内部编号及受试者编号保持不变。</p>
+    <div class="button-row"><button id="cancelLibraryRename" type="button" class="secondary">取消</button><button id="saveLibraryRename" type="button" class="primary">保存名称</button></div>
+  </dialog>
 </body>
 </html>

@@ -17,6 +17,9 @@ from pathlib import Path
 import numpy as np
 
 from .mi_recording import CHANNELS, FS, SessionRecorder, list_sessions, load_session, _atomic_manifest
+from .mi_delete import RecordingDeletion
+from .mi_library import LibraryMetadata, ModelDeletion
+from .mi_test_job import EvaluationJob
 from .sources import DemoSource, DeviceSource
 from .sample_clock import CLOCK_METHOD, ReceiptSampleClock
 from .storage import unique_name, utc_now
@@ -71,6 +74,7 @@ class MIEngine:
         self.pipeline = StreamingPipeline()
         self.model = None
         self.model_id = None
+        self.model_display_name = None
         self.model_error = None
         self.prediction = unavailable("尚未加载八通道三类模型。", "no_model")
         self.predictions = deque(maxlen=5000)
@@ -106,6 +110,10 @@ class MIEngine:
         self.replay_clock = time.monotonic()
         self.training = {"status": "idle", "message": "请选择录制文件和算法。"}
         self.training_thread = None
+        self.recording_deletion = RecordingDeletion(self.recordings)
+        self.library = LibraryMetadata(self.recordings, self.models)
+        self.model_deletion = ModelDeletion(self.models)
+        self.evaluation = EvaluationJob(self.root / "data" / "mi_evaluations")
         self.robot = RobotBridge(log_dir=self.root / "data" / "mi_robot")
         self.monitor = threading.Thread(target=self._monitor, daemon=True, name="MI-monitor")
         self.monitor.start()
@@ -114,19 +122,101 @@ class MIEngine:
         self.events.append({"time": utc_now(), "level": level, "message": message})
 
     def sessions(self):
-        return list_sessions(self.recordings)
+        with self.lock:
+            return self.library.decorate_recordings(list_sessions(self.recordings))
+
+    def _require_recording_files_idle(self):
+        self.evaluation.require_idle()
+        if self.recorder or self.status in ("running", "connecting") or (self.worker and self.worker.is_alive()):
+            raise RuntimeError("请先停止采集或暂停回放，再管理录制数据和模型。")
+        if self.training["status"] == "running" or (self.training_thread and self.training_thread.is_alive()):
+            raise RuntimeError("模型正在训练，请等待完成后再管理录制数据和模型。")
+        if any(worker.is_alive() for worker in self.validation_threads):
+            raise RuntimeError("录制文件正在检查或补齐，请等待完成后再管理数据。")
+
+    def preview_recording_deletion(self, options):
+        with self.lock:
+            self._require_recording_files_idle()
+            preview = self.recording_deletion.preview(options.get("recordings"))
+            preview["recordings"] = self.library.decorate_recordings(preview["recordings"])
+            return preview
+
+    def update_library(self, options):
+        if set(options) - {"kind", "id", "display_name", "favorite"}:
+            raise ValueError("名称或收藏请求含未知字段。")
+        changes = {key: options[key] for key in ("display_name", "favorite") if key in options}
+        if not changes:
+            raise ValueError("请提供新名称或收藏状态。")
+        with self.lock:
+            self._require_recording_files_idle()
+            result = self.library.update(options.get("kind"), options.get("id"), **changes)
+            if result.get("kind") == "model" and result.get("id") == self.model_id:
+                current = next((row for row in self.model_files() if row["id"] == self.model_id), None)
+                if current:
+                    self.model_display_name = current["display_name"]
+            return result
+
+    def preview_model_deletion(self, options):
+        with self.lock:
+            self._require_recording_files_idle()
+            return self.model_deletion.preview(options.get("models"))
+
+    def delete_models(self, options):
+        with self.lock:
+            self._require_recording_files_idle()
+            selected = set(self.model_deletion.selected(options.get("token")))
+            result = self.model_deletion.delete(options.get("token"))
+            # A partial filesystem failure must not leave a selected, removed
+            # model running from memory. Unload after a confirmed attempt.
+            if self.model_id in selected:
+                self.robot.disarm("已确认删除当前模型，机械臂发送已关闭。")
+                self.model = self.model_id = self.model_display_name = None
+                self.model_error = None
+                self.pipeline.set_model(None)
+                self.pipeline.reset()
+                self.predictions.clear()
+                self.prediction = unavailable("当前模型已卸载，请重新选择模型。", "no_model")
+            if self.training.get("model_id") in selected:
+                self.training = {"status": "idle", "message": "已处理所选模型的删除，请核对模型列表。"}
+            if result.get("deleted"):
+                self._event(f"已删除 {len(result['deleted'])} 个模型；录制数据保留。")
+            return result
+
+    def delete_recordings(self, options):
+        with self.lock:
+            self._require_recording_files_idle()
+            result = self.recording_deletion.delete(options.get("token"))
+            deleted = set(result.get("deleted", []))
+            if self.last_recording.get("id") in deleted:
+                self.last_recording = {"active": False, "id": None, "plan": []}
+            if self.replay_id in deleted:
+                self.replay = self.replay_id = None
+                self.replay_position, self.replay_index = 0.0, 0
+                self.replay_playing = False
+                self.pipeline.reset()
+                self.samples, self.times = np.empty((0, 8)), np.empty(0)
+                self.predictions.clear()
+                self.prediction = unavailable("回放录制已删除，请重新选择数据。")
+                self._close_predictions()
+            if deleted:
+                self._event(f"已删除 {len(deleted)} 段录制数据；已有模型保留。")
+            return result
 
     def model_files(self):
+        with self.lock:
+            return self.library.decorate_models(self._model_files())
+
+    def _model_files(self):
         result = []
         for path in sorted(self.models.glob("*.json"), reverse=True):
-            if path.is_symlink() or path.stat().st_size > 1_000_000:
+            if path.name.endswith(".library.json") or path.is_symlink() or path.stat().st_size > 1_000_000:
                 continue
             try:
                 meta = json.loads(path.read_text(encoding="utf-8"))
                 model_id = path.stem
                 if (self.models / f"{model_id}.joblib").is_file():
                     compatible = meta.get("version") == VERSION and meta.get("input") == input_contract()
-                    result.append({"id": model_id, **meta, "compatible": compatible})
+                    result.append({**meta, "id": model_id, "compatible": compatible})
             except (ValueError, OSError):
                 continue
         return result
@@ -154,6 +244,7 @@ class MIEngine:
             self.model_error = str(exc)
 
     def start(self, options):
+        self.evaluation.require_idle()
         kind = options.get("source", "demo")
         if kind not in ("demo", "device"):
             raise ValueError("请选择模拟或真实设备；录制文件请使用回放区。")
@@ -228,6 +319,7 @@ class MIEngine:
 
     def close(self):
         self.closed.set()
+        self.evaluation.close()
         self.stop()
         self.robot.close()
         if self.monitor is not threading.current_thread():
@@ -583,7 +675,7 @@ class MIEngine:
         gap_fill = None
         try:
             # Export after close, outside the acquisition lock. The source CSV
-            # and the model's training/online inputs remain real samples only.
+            # Online inputs and the default validation remain real samples only.
             try:
                 gap_fill = export_gap_filled(path)
             except Exception as exc:
@@ -624,6 +716,7 @@ class MIEngine:
                 "trial": phase["trial"] if phase else 0}
 
     def load_replay(self, identifier):
+        self.evaluation.require_idle()
         path = self._safe_path(self.recordings, identifier)
         session = load_session(path)
         if not len(session["samples"]):
@@ -647,6 +740,7 @@ class MIEngine:
     def replay_control(self, options):
         action = options.get("action")
         with self.lock:
+            self.evaluation.require_idle()
             if self.replay is None or self.source_kind != "replay":
                 raise ValueError("请先加载录制文件。")
             if "speed" in options:
@@ -727,7 +821,39 @@ class MIEngine:
                     self.message = str(exc)
                     self._finish_recording("aborted", str(exc))
 
+    def start_evaluation(self, options):
+        identifiers = options.get("ids")
+        model_id = options.get("model_id")
+        if (set(options) - {"ids", "model_id"} or not isinstance(identifiers, list)
+                or not 1 <= len(identifiers) <= 50
+                or any(not isinstance(item, str) for item in identifiers)):
+            raise ValueError("请选择一个模型和 1～50 段录制数据。")
+        if len(set(identifiers)) != len(identifiers):
+            raise ValueError("不要重复选择同一段录制。")
+        with self.lock:
+            self._require_recording_files_idle()
+            if self.replay_playing:
+                raise RuntimeError("请先暂停回放再测试模型。")
+            models = {item["id"]: item for item in self.model_files()}
+            recordings = {item["id"]: item for item in self.sessions()}
+            model = models.get(model_id)
+            if not model or not model.get("compatible"):
+                raise ValueError("请选择兼容的八通道三类模型。")
+            if any(item not in recordings for item in identifiers):
+                raise ValueError("录制列表已变化，请刷新后重新选择。")
+            selected = [recordings[item] for item in identifiers]
+            if any(item.get("source") != model.get("source") for item in selected):
+                raise ValueError("模型与测试数据的来源须一致，演示和实机不能混用。")
+            paths = [self._safe_path(self.recordings, item) for item in identifiers]
+            model_path = self._safe_path(self.models, model_id, ".joblib")
+            self.robot.disarm("离线模型测试中，机械臂发送已关闭。")
+            return self.evaluation.start(model_path, paths,
+                                         {key: model.get(key) for key in ("id", "display_name", "feature", "classifier", "source")},
+                                         [{key: item.get(key) for key in ("id", "display_name", "subject", "source", "duration_s")}
+                                          for item in selected])
+
     def train(self, options):
+        self.evaluation.require_idle()
         identifiers = options.get("ids", [])
         if not isinstance(identifiers, list) or not identifiers or len(identifiers) > 50:
             raise ValueError("请选择 1～50 段带标注录制。")
@@ -735,6 +861,9 @@ class MIEngine:
             raise ValueError("不要重复选择同一段录制。")
         paths = [self._safe_path(self.recordings, i) for i in identifiers]
         feature, classifier = options.get("feature", "bandpower"), options.get("classifier", "lda")
+        use_filled = options.get("use_filled", False)
+        if type(use_filled) is not bool:
+            raise ValueError("补齐数据训练选项必须为开或关。")
         if feature not in ("bandpower", "csp", "combined") or classifier not in ("lda", "svm"):
             raise ValueError("请选择频带功率/CSP/组合特征与 LDA/SVM。")
         with self.lock:
@@ -742,15 +871,18 @@ class MIEngine:
                 raise RuntimeError("训练正在进行，请等待完成。")
             if self.recorder or self.status in ("running", "connecting"):
                 raise ValueError("请先停止采集或回放，再训练模型。")
-            self.training = {"status": "running", "message": "读取标注、按完整试次分组并训练；不会随机拆散重叠窗口。"}
-            self.training_thread = threading.Thread(target=self._train_worker, args=(paths, feature, classifier),
+            if any(worker.is_alive() for worker in self.validation_threads):
+                raise RuntimeError("录制文件正在检查或补齐，请等待完成后再训练。")
+            self.training = {"status": "running", "use_filled": use_filled,
+                             "message": "读取标注、按完整试次分组并训练；不会随机拆散重叠窗口。"}
+            self.training_thread = threading.Thread(target=self._train_worker, args=(paths, feature, classifier, use_filled),
                                                    daemon=True, name="MI-training")
             self.training_thread.start()
         return {"ok": True}
 
-    def _train_worker(self, paths, feature, classifier):
+    def _train_worker(self, paths, feature, classifier, use_filled=False):
         try:
-            sessions = [load_session(p) for p in paths]
+            sessions = [load_session(p, use_filled=use_filled) for p in paths]
             model = train_model(sessions, feature=feature, classifier=classifier)
             model_id = unique_name(f"mi_{feature}_{classifier}", "")
             save_model(model, self.models / f"{model_id}.joblib")
@@ -758,22 +890,24 @@ class MIEngine:
                     "version": model["version"], "input": model["input"],
                     "diagnostics": model["metadata"].get("dataset_diagnostics", {}),
                     "metrics": model.get("metrics", {}), "source": sessions[0]["metadata"]["source"],
-                    "recordings": [p.name for p in paths]}
+                    "recordings": [p.name for p in paths], "use_filled": use_filled}
             with (self.models / f"{model_id}.json").open("x", encoding="utf-8") as handle:
                 json.dump(meta, handle, ensure_ascii=False, indent=2, allow_nan=False)
             with self.lock:
                 self.training = {"status": "complete", "message": "训练完成。部署模型未使用留出测试集重新拟合。",
                                  "model_id": model_id, "metrics": model.get("metrics", {}),
-                                 "diagnostics": meta["diagnostics"]}
+                                 "diagnostics": meta["diagnostics"], "use_filled": use_filled}
                 self._event(f"训练完成并保存：{model_id}")
         except Exception as exc:
             with self.lock:
                 self.training = {"status": "error", "message": str(exc),
-                                 "diagnostics": getattr(exc, "diagnostics", {})}
+                                 "diagnostics": getattr(exc, "diagnostics", {}), "use_filled": use_filled}
                 self._event(f"训练失败：{exc}", "error")
 
     def load_model(self, identifier):
-        if identifier not in {m["id"] for m in self.model_files()}:
+        self.evaluation.require_idle()
+        listing = next((m for m in self.model_files() if m["id"] == identifier), None)
+        if listing is None:
             raise ValueError("请选择本流程保存的模型。旧两类模型不兼容。")
         path = self._safe_path(self.models, identifier, ".joblib")
         model = load_model(path)
@@ -782,8 +916,10 @@ class MIEngine:
                 raise ValueError("请在录制结束后更换模型。")
             self.robot.disarm("模型已更换，机械臂发送已关闭；请核对模型后重新启用。")
             self.model, self.model_id = model, identifier
+            self.model_display_name = listing["display_name"]
             self.pipeline.reset()
             self._set_pipeline_model()
+            self.predictions.clear()
             self.prediction = unavailable("模型已加载，等待完整连续窗口。", "warming_up")
             self._event(f"加载八通道模型：{identifier}")
         return {"ok": True}
@@ -799,6 +935,7 @@ class MIEngine:
 
     def robot_configure(self, options):
         with self.lock:
+            self.evaluation.require_idle()
             return self.robot.configure(options, self._robot_context())
 
     def robot_heartbeat(self, options):
@@ -808,6 +945,7 @@ class MIEngine:
 
     def robot_test(self):
         with self.lock:
+            self.evaluation.require_idle()
             return self.robot.test_link(self._robot_context())
 
     def robot_disarm(self, options=None):
@@ -868,12 +1006,14 @@ class MIEngine:
                     "prediction": pred, "predictions": list(self.predictions)[-80:],
                     "predictions_file": str(self.prediction_path) if self.prediction_path else None,
                     "model": {"available": self.model is not None, "id": self.model_id,
+                              "display_name": self.model_display_name,
                               "compatible": self.model_error is None, "reason": self.model_error,
                               "metrics": self.model.get("metrics", {}) if self.model else {},
                               "diagnostics": self.model.get("metadata", {}).get("dataset_diagnostics", {}) if self.model else {},
                               "feature": self.model.get("metadata", {}).get("feature") if self.model else None,
                               "classifier": self.model.get("metadata", {}).get("classifier") if self.model else None},
-                    "training": copy.deepcopy(self.training), "robot": self.robot.snapshot(),
+                    "training": copy.deepcopy(self.training), "evaluation": self.evaluation.snapshot(),
+                    "robot": self.robot.snapshot(),
                     "events": list(self.events)[-20:]}
 
     def prediction_records(self, after=0):

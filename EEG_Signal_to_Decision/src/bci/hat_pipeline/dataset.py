@@ -20,6 +20,8 @@ def _new_summary():
             "outside_complete_task": 0, "warmup_rejected": 0, "quality_rejected": 0,
             "warning_windows": 0, "accepted_warning_windows": 0,
             "clock_rejected_trials": 0, "clock_unverified_recordings": 0,
+            "interpolated_samples": 0, "interpolated_windows": 0,
+            "recordings_with_interpolation": 0,
             "per_class": {label: {"candidate_windows": 0, "accepted_windows": 0,
                                   "candidate_trials": 0, "accepted_trials": 0} for label in LABELS},
             "rejection_reasons": {}, "channel_rejections": {},
@@ -93,12 +95,12 @@ def build_dataset(sessions):
     # Recorder-generated IDs begin with their capture timestamp. Canonical
     # ordering makes the same selected recordings independent of UI click order.
     sessions.sort(key=lambda session: session["metadata"]["id"])
-    xs, ys, groups, ids, starts, ends = [], [], [], [], [], []
+    xs, ys, groups, ids, starts, ends, filled_counts = [], [], [], [], [], [], []
     sources, seen = set(), set()
     rejected = {"quality_or_warmup": 0, "outside_complete_task": 0}
     diagnostics = _new_summary()
     diagnostics.update(schema_version=1, window_samples=WINDOW, hop_samples=HOP,
-                       label_order=list(LABELS), per_recording=[])
+                       label_order=list(LABELS), per_recording=[], use_filled=False)
     for session in sessions:
         metadata = session["metadata"]
         identifier = metadata["id"]
@@ -115,8 +117,21 @@ def build_dataset(sessions):
             raise ValueError("Trial and segment ids must be integers")
         if arrays["timing_valid"].dtype != np.bool_:
             raise ValueError("timing_valid must be an explicit boolean per sample")
+        interpolated = np.asarray(session.get("is_interpolated", np.zeros(len(data), dtype=bool)))
+        if interpolated.ndim != 1 or len(interpolated) != len(data) or interpolated.dtype != np.bool_:
+            raise ValueError("is_interpolated must be an explicit boolean per sample")
+        training_data = metadata.get("training_data", {"use_filled": False, "status": "disabled"})
+        if interpolated.any() and training_data.get("use_filled") is not True:
+            raise ValueError("Interpolated samples require explicit filled-data training metadata")
         recording = _new_summary()
         recording.update(id=identifier, subject=metadata.get("subject", ""), source=metadata["source"])
+        recording["training_data"] = training_data
+        recording["use_filled"] = training_data.get("use_filled") is True
+        recording["interpolated_samples"] = int(interpolated.sum())
+        recording["recordings_with_interpolation"] = int(interpolated.any())
+        diagnostics["use_filled"] |= recording["use_filled"]
+        diagnostics["interpolated_samples"] += recording["interpolated_samples"]
+        diagnostics["recordings_with_interpolation"] += recording["recordings_with_interpolation"]
         audit = metadata.get("timestamp_audit", {})
         recording["timestamp_audit"] = audit
         recording["clock_rejected_trials"] = len(audit.get("rejected_trial_ids", []))
@@ -166,6 +181,7 @@ def build_dataset(sessions):
                     continue
                 for summary in (diagnostics, recording):
                     summary["accepted_windows"] += 1
+                    summary["interpolated_windows"] += int(interpolated[lo:hi].any())
                     if any(isinstance(item, dict) for item in quality.get("warnings", [])):
                         summary["accepted_warning_windows"] += 1
                     summary["per_class"][label]["accepted_windows"] += 1
@@ -173,6 +189,7 @@ def build_dataset(sessions):
                 xs.append(epoch); ys.append(LABELS.index(str(labels[0])))
                 groups.append(group); ids.append(identifier)
                 starts.append(row["window_start_index"]); ends.append(row["window_end_index"])
+                filled_counts.append(int(interpolated[lo:hi].sum()))
             start = int(end)
     _finish_summary(diagnostics)
     for recording in diagnostics["per_recording"]:
@@ -182,6 +199,9 @@ def build_dataset(sessions):
     return {"X": np.stack(xs), "y": np.asarray(ys, dtype=np.int64),
             "groups": np.asarray(groups), "session_ids": np.asarray(ids),
             "window_start_indices": np.asarray(starts), "window_end_indices": np.asarray(ends),
+            "window_interpolated_samples": np.asarray(filled_counts, dtype=np.int64),
             "metadata": {"input": input_contract(), "source": sources.pop(), "session_ids": sorted(seen),
+                         "training_data": {key: diagnostics[key] for key in
+                                           ("use_filled", "interpolated_samples", "interpolated_windows", "recordings_with_interpolation")},
                          "dataset_diagnostics": diagnostics},
             "rejected": rejected}

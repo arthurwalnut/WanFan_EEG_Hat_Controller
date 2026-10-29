@@ -1,8 +1,9 @@
 """Derived MI gap exports; canonical raw recordings remain unchanged.
 
 Only declared packet-loss gaps with two measured CSV endpoints are filled.
-The resulting CSV is for inspection/export, never the input to training or live
-decoding. Planned cue labels do not certify display timing or usable EEG.
+The resulting CSV is for inspection/export. Opt-in training reconstructs the
+same endpoint means from raw samples; it never trusts an edited derived CSV.
+Planned cue labels do not certify display timing or usable EEG.
 """
 from __future__ import annotations
 
@@ -99,6 +100,8 @@ def _loss_events(path, limit):
             line_number += 1
             if len(line) > MAX_EVENT_LINE_BYTES:
                 raise ValueError(f"Event line {line_number} exceeds the bounded size")
+            if not line.strip():
+                continue
             row = _json(line.decode("utf-8-sig"))
             if not isinstance(row, dict):
                 raise ValueError(f"Event line {line_number} must be an object")
@@ -264,7 +267,7 @@ def export_gap_filled(path):
               "raw_sample_count_verified": False, "filled_gaps": [], "unfilled_gaps": [], "errors": [],
               "label_source": "original_plan_at_unchanged_time_s",
               "training_source": "samples.csv",
-              "note": "Inserted values are synthetic endpoint means, not measured EEG. Only samples.csv is used for training and replay."}
+              "note": "Inserted values are synthetic endpoint means, not measured EEG. Replay uses raw samples; optional filled-data training rebuilds verified gaps from the raw files."}
     temporary = output_path.with_name(f".{OUTPUT_FILE}.{uuid4().hex}.tmp")
     try:
         manifest_path = _file(root, "manifest.json")
@@ -300,3 +303,104 @@ def export_gap_filled(path):
             temporary.unlink()
     _atomic_report(report_path, report)
     return report
+
+
+def fill_training_samples(path, metadata, samples, times, indices, segments, received):
+    """Build an in-memory training view, preserving raw files and clock evidence.
+
+    Modern records require matching packet-loss declarations. Older records can
+    identify missing packets through their sample indices only when packet size,
+    timestamp span and segment transition agree. Every other boundary remains.
+    """
+    import numpy as np
+
+    limit = math.floor(metadata["duration_s"] * FS)
+    events = _loss_events(Path(path) / "events.jsonl", limit)
+    declared = {event["missing_start_index"]: event for event in events}
+    modern = "packet_loss_policy" in metadata or bool(events)
+    report = {"use_filled": True, "method": METHOD, "status": "not_needed",
+              "source_file": "samples.csv", "derived_csv_trusted": False,
+              "raw_sample_count": len(samples), "filled_sample_count": 0,
+              "filled_gaps": [], "unfilled_gaps": [], "cross_trial_rejected_ids": [],
+              "note": "Synthetic endpoint means; raw timestamps and display/clock checks retained."}
+    matches, seen = {}, set()
+    corrections = np.zeros(len(indices), dtype=np.int64)
+    for right in np.flatnonzero(np.diff(indices) > 1) + 1:
+        left = int(right) - 1
+        start, following = int(indices[left]) + 1, int(indices[right])
+        missing = following - start
+        event = declared.get(start)
+        item = {"missing_start_index": start, "next_sample_index": following,
+                "missing_samples": missing, "source": "packet_loss_event" if event else "legacy_index_and_time"}
+        reason = None
+        if event:
+            seen.add(event["gap_id"])
+            item["gap_id"] = event["gap_id"]
+        if metadata.get("source") != "device":
+            reason = "not_device_recording"
+        elif modern and event is None:
+            reason = "undeclared_gap"
+        elif event and (event["missing_samples"] != missing or event["next_sample_index"] != following):
+            reason = "csv_indices_disagree_with_event"
+        elif missing % 50:
+            reason = "not_whole_packets"
+        elif missing + report["filled_sample_count"] > limit:
+            reason = "gap_exceeds_recording_duration"
+        elif int(segments[right]) - int(segments[left]) not in (0, 1):
+            reason = "unexplained_segment_transition"
+        elif received[right] <= received[left]:
+            reason = "missing_distinct_packet_receipts"
+        elif not .75 * (missing + 1) / FS - 1e-9 <= times[right] - times[left] <= 1.25 * (missing + 1) / FS + 1e-9:
+            reason = "timestamp_span_disagrees_with_missing_samples"
+        elif times[right] > metadata["duration_s"] + 1.25 / FS:
+            reason = "gap_outside_recording_duration"
+        if reason:
+            report["unfilled_gaps"].append(dict(item, reason=reason))
+            continue
+        item.update(left_index=int(indices[left]), right_index=following,
+                    left_time_s=float(times[left]), right_time_s=float(times[right]))
+        task_at = lambda value: next((phase["trial"] for phase in metadata["plan"]
+                                    if phase["phase"] == "task" and phase["start_s"] <= value < phase["end_s"]), 0)
+        first_trial, last_trial = task_at(times[left]), task_at(times[right])
+        if first_trial and last_trial and first_trial != last_trial:
+            affected = [phase["trial"] for phase in metadata["plan"] if phase["phase"] == "task"
+                        and phase["start_s"] <= times[right] and phase["end_s"] > times[left]]
+            report["cross_trial_rejected_ids"] = sorted(set(report["cross_trial_rejected_ids"]) | set(affected))
+            item["cross_trial_rejected_ids"] = affected
+        report["filled_gaps"].append(item)
+        report["filled_sample_count"] += missing
+        matches[int(right)] = missing
+        corrections[right] = int(segments[right]) - int(segments[left])
+    for event in events:
+        if event["gap_id"] not in seen:
+            report["unfilled_gaps"].append(dict(_gap_summary(event), reason="no_matching_measured_endpoints"))
+    # A segment change without a missing index remains an unbridged boundary.
+    for right in np.flatnonzero((np.diff(segments) != 0) & (np.diff(indices) == 1)) + 1:
+        report["unfilled_gaps"].append({"missing_start_index": int(indices[right]),
+                                       "missing_samples": 0, "reason": "segment_boundary_without_missing_indices"})
+    report["status"] = "partial" if report["unfilled_gaps"] else "complete" if matches else "not_needed"
+    if not matches:
+        return samples, times, indices, segments, received, np.zeros(len(samples), dtype=bool), report
+    joined_segments = segments - np.cumsum(corrections)
+    parts = [[] for _ in range(6)]
+    start = 0
+    for right, missing in matches.items():
+        left = right - 1
+        raw_parts = (samples[start:right], times[start:right], indices[start:right],
+                     joined_segments[start:right], received[start:right], np.zeros(right - start, dtype=bool))
+        for bucket, value in zip(parts, raw_parts):
+            bucket.append(value)
+        offsets = np.arange(1, missing + 1, dtype=np.int64)
+        fill_times = times[left] + (times[right] - times[left]) * offsets / (missing + 1)
+        mean = samples[left] / 2 + samples[right] / 2
+        fill_parts = (np.broadcast_to(mean, (missing, len(mean))), fill_times, indices[left] + offsets,
+                      np.full(missing, joined_segments[left], dtype=np.int64),
+                      np.full(missing, np.nan), np.ones(missing, dtype=bool))
+        for bucket, value in zip(parts, fill_parts):
+            bucket.append(value)
+        start = right
+    tail = (samples[start:], times[start:], indices[start:], joined_segments[start:], received[start:],
+            np.zeros(len(samples) - start, dtype=bool))
+    for bucket, value in zip(parts, tail):
+        bucket.append(value)
+    return *(np.concatenate(bucket) for bucket in parts), report

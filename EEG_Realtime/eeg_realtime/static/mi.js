@@ -26,7 +26,7 @@
   // an engineering timing budget, not a bound on display or hardware latency.
   const BROWSER_CLOCK_QUANTIZATION_BUDGET_S = .001;
   const app = {
-    token: "", state: null, sessions: [], models: [], selected: new Set(), busy: false,
+    token: "", state: null, sessions: [], models: [], selected: new Set(), selectedModels: new Set(), busy: false,
     polling: null, online: false, offset: null, bestRtt: Infinity, clockSetAt: 0,
     recordingOffset: null, cueKey: "", acked: new Set(), recordRequested: false,
     focusLost: false, safetyStopping: false, seeking: false, lastStateAt: 0, lastServerTime: -Infinity,
@@ -35,6 +35,7 @@
     recordingMode: false, restoreFocus: null, inertNodes: [], presentedCue: null,
     clockUncertainty: null, clockResolution: null, lastFrameAt: null, lastVisibleElapsed: null,
     displayInFlight: false, lastDisplayElapsed: -Infinity, lastDisplayPhase: undefined,
+    deletePreview: null, deleteSubmitting: false, renameTarget: null, activeTab: "acquisition",
   };
   const finite = (value) => typeof value === "number" && Number.isFinite(value);
   const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
@@ -62,7 +63,7 @@
     if (active) {
       app.restoreFocus = document.activeElement;
       $("cueCard").setAttribute("aria-modal", "true");
-      app.inertNodes = [...document.querySelectorAll(".topbar, .page-heading, .tabs, .control-stack, #replayPane, #trainingPane, #robotPane, .waveform-card, .online-grid, .event-panel, footer")].map((node) => [node, node.inert]);
+      app.inertNodes = [...document.querySelectorAll(".topbar, .page-heading, .tabs, .control-stack, #replayPane, #trainingPane, #evaluationPane, #robotPane, .waveform-card, .online-grid, .event-panel, footer")].map((node) => [node, node.inert]);
       for (const [node] of app.inertNodes) node.inert = true;
       // Element focus stays in this window; no Fullscreen API or window focus change.
       if (document.hasFocus()) $("focusStopRecordButton").focus({ preventScroll: true });
@@ -176,7 +177,11 @@
         cache: "no-store", signal: controller.signal, keepalive: Boolean(options.keepalive),
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || `请求失败（${response.status}）`);
+      if (!response.ok) {
+        const error = new Error(data.error || `请求失败（${response.status}）`);
+        error.data = data;
+        throw error;
+      }
       return data;
     } catch (error) {
       if (error.name === "AbortError") throw new Error("请求超时，请检查本地服务是否仍在运行。");
@@ -201,11 +206,43 @@
     app.sessions = Array.isArray(data.sessions) ? data.sessions : [];
     app.models = Array.isArray(data.models) ? data.models : [];
     app.selected = new Set([...app.selected].filter((id) => app.sessions.some((s) => s.id === id)));
+    app.selectedModels = new Set([...app.selectedModels].filter((id) => app.models.some((model) => model.id === id)));
     renderLists();
   }
 
   function sessionText(session) {
-    return `${session.subject || "未填编号"} · ${sourceText(session.source)} · ${fmt(session.duration_s, 0)} 秒 · ${session.id}`;
+    return `${session.favorite ? "★ " : ""}${recordingName(session)} · ${sourceText(session.source)} · ${fmt(session.duration_s, 0)} 秒 · ${session.id}`;
+  }
+
+  function recordingName(record) {
+    return record.display_name && record.display_name !== record.id ? record.display_name : record.subject || record.id || "未填编号";
+  }
+
+  function modelText(model) {
+    return `${model.favorite ? "★ " : ""}${model.compatible === false ? "[旧版 · 需重训] " : ""}${model.display_name || model.id} · ${sourceText(model.source)} · ${model.feature || "—"} + ${String(model.classifier || "—").toUpperCase()}`;
+  }
+
+  function libraryRows(kind) { return kind === "model" ? app.models : app.sessions; }
+  function librarySelection(kind) { return kind === "model" ? app.selectedModels : app.selected; }
+
+  function favoriteButton(kind, record) {
+    const name = kind === "recording" ? recordingName(record) : record.display_name || record.id;
+    const button = element("button", record.favorite ? "★" : "☆", `favorite-button${record.favorite ? " is-favorite" : ""}`);
+    button.type = "button";
+    button.dataset.libraryKind = kind;
+    button.dataset.libraryId = record.id;
+    button.setAttribute("aria-label", `${record.favorite ? "取消收藏" : "收藏"}：${name}`);
+    button.setAttribute("aria-pressed", String(Boolean(record.favorite)));
+    button.title = record.favorite ? "取消收藏" : "收藏";
+    button.addEventListener("click", async () => {
+      await action(async () => {
+        await request("/api/mi/library/update", { kind, id: record.id, favorite: !record.favorite });
+        await bootstrap();
+      });
+      const list = $(kind === "model" ? "modelLibrary" : "trainingSessions");
+      [...list.querySelectorAll("button")].find((item) => item.dataset.libraryId === record.id)?.focus({ preventScroll: true });
+    });
+    return button;
   }
 
   function updateSelect(node, records, title, describe, isDisabled = () => false) {
@@ -223,12 +260,29 @@
 
   function renderLists() {
     updateSelect($("replaySession"), app.sessions, "选择录制", sessionText);
-    updateSelect($("modelSelect"), app.models, "选择模型", (model) => `${model.compatible === false ? "[旧版 · 需重训] " : ""}${sourceText(model.source)} · ${model.feature || "—"} + ${String(model.classifier || "—").toUpperCase()} · ${model.id}`, (model) => model.compatible === false);
+    updateSelect($("modelSelect"), app.models, "选择模型", modelText, (model) => model.compatible === false);
+    renderTrainingSessions();
+    renderModelLibrary();
+    renderSessionDetails();
+    window.MIEvaluationUI?.updateLibrary(app.models, app.sessions);
+    renderControls();
+  }
+
+  function visibleTrainingSessions() {
+    const query = $("recordingSearch").value.trim().toLocaleLowerCase();
+    return app.sessions.filter((session) => !query || `${sessionText(session)} ${session.subject || ""} ${STATUS_LABELS[session.status] || session.status || ""} ${session.created_utc || ""}`.toLocaleLowerCase().includes(query));
+  }
+
+  function renderTrainingSessions() {
     const list = $("trainingSessions");
     list.replaceChildren();
+    const visible = visibleTrainingSessions();
+    $("recordingSearchCount").textContent = `显示 ${visible.length} / ${app.sessions.length} 次录制`;
     if (!app.sessions.length) list.append(element("p", "录制完成后，数据会出现在这里。", "empty-state"));
-    for (const session of app.sessions) {
-      const item = element("label", undefined, "session-item");
+    else if (!visible.length) list.append(element("p", "没有匹配的录制，请调整搜索内容。", "empty-state"));
+    for (const session of visible) {
+      const item = element("div", undefined, "session-item library-item");
+      const selectable = element("label", undefined, "library-selection");
       const check = document.createElement("input");
       check.type = "checkbox";
       check.value = session.id;
@@ -238,13 +292,145 @@
         renderControls();
       });
       const info = element("span", undefined, "session-info");
-      info.append(element("b", `${session.subject || "未填编号"} · ${sourceText(session.source)} · ${fmt(session.duration_s, 0)} 秒`));
-      info.append(element("small", `${STATUS_LABELS[session.status] || session.status || "—"} · ${session.id}`));
-      item.append(check, info);
+      info.append(element("b", `${recordingName(session)} · ${sourceText(session.source)} · ${fmt(session.duration_s, 0)} 秒`));
+      info.append(element("small", `受试者：${session.subject || "未填编号"} · ${STATUS_LABELS[session.status] || session.status || "—"} · ${session.id}`));
+      selectable.append(check, info);
+      item.append(selectable, favoriteButton("recording", session));
       list.append(item);
     }
-    renderSessionDetails();
     renderControls();
+  }
+
+  function visibleModels() {
+    const query = $("modelSearch").value.trim().toLocaleLowerCase();
+    return app.models.filter((model) => !query || `${modelText(model)} ${model.id} ${model.created || ""}`.toLocaleLowerCase().includes(query));
+  }
+
+  function renderModelLibrary() {
+    const list = $("modelLibrary"), visible = visibleModels();
+    list.replaceChildren();
+    $("modelSearchCount").textContent = `显示 ${visible.length} / ${app.models.length} 个模型`;
+    if (!app.models.length) list.append(element("p", "训练完成后，模型会出现在这里。", "empty-state"));
+    else if (!visible.length) list.append(element("p", "没有匹配的模型，请调整搜索内容。", "empty-state"));
+    for (const model of visible) {
+      const item = element("div", undefined, "session-item library-item");
+      const selectable = element("label", undefined, "library-selection");
+      const check = document.createElement("input");
+      check.type = "checkbox"; check.value = model.id; check.checked = app.selectedModels.has(model.id);
+      check.addEventListener("change", () => {
+        if (check.checked) app.selectedModels.add(model.id); else app.selectedModels.delete(model.id);
+        if (app.selectedModels.size === 1) {
+          const choice = app.models.find((row) => row.id === [...app.selectedModels][0]);
+          if (choice && choice.compatible !== false) $("modelSelect").value = choice.id;
+        }
+        renderControls();
+      });
+      const info = element("span", undefined, "session-info");
+      info.append(element("b", model.display_name || model.id));
+      info.append(element("small", `${sourceText(model.source)} · ${model.feature || "—"} + ${String(model.classifier || "—").toUpperCase()}${model.compatible === false ? " · 旧版需重训" : ""} · ${model.id}`));
+      selectable.append(check, info); item.append(selectable, favoriteButton("model", model)); list.append(item);
+    }
+    renderControls();
+  }
+
+  function beginLibraryRename(kind) {
+    const selected = librarySelection(kind);
+    if (selected.size !== 1 || app.renameTarget || app.deletePreview) return;
+    const record = libraryRows(kind).find((item) => item.id === [...selected][0]);
+    if (!record) return;
+    app.renameTarget = { kind, id: record.id };
+    $("renameLibraryTitle").textContent = kind === "model" ? "重命名模型" : "重命名录制";
+    $("renameLibraryItem").textContent = record.id;
+    $("libraryNameInput").value = record.display_name || "";
+    $("renameLibraryDialog").showModal();
+    $("libraryNameInput").focus(); $("libraryNameInput").select();
+    renderControls();
+  }
+
+  function cancelLibraryRename() {
+    if (app.busy) return;
+    app.renameTarget = null; $("renameLibraryDialog").close(); renderControls();
+  }
+
+  async function saveLibraryRename() {
+    if (!app.renameTarget || app.busy || !$("libraryNameInput").reportValidity()) return;
+    const target = { ...app.renameTarget }, displayName = $("libraryNameInput").value.trim();
+    await action(async () => {
+      await request("/api/mi/library/update", { ...target, display_name: displayName });
+      app.renameTarget = null; $("renameLibraryDialog").close();
+      await bootstrap(); notify(displayName ? "显示名称已保存。" : "已恢复默认显示名称。");
+    });
+  }
+
+  async function previewRecordingDeletion() {
+    return previewLibraryDeletion("recording");
+  }
+
+  async function previewLibraryDeletion(kind) {
+    if (!librarySelection(kind).size || app.deletePreview || app.renameTarget) return;
+    const selected = [...librarySelection(kind)], isModel = kind === "model";
+    const key = isModel ? "models" : "recordings";
+    const preview = await request(`/api/mi/${key}/delete-preview`, { [key]: selected });
+    const records = preview[key];
+    if (!preview.ok || typeof preview.token !== "string" || !preview.token || !Array.isArray(records) ||
+        records.length !== selected.length || new Set(records.map((record) => record.id)).size !== selected.length ||
+        records.some((record) => !selected.includes(record.id) || !Array.isArray(record.files) || record.files.some((file) => typeof file !== "string"))) {
+      throw new Error(preview.error || "删除预览不完整，请刷新列表后重试。");
+    }
+    const files = $("deleteRecordingsFiles");
+    files.replaceChildren();
+    for (const record of records) {
+      const section = element("section", undefined, "delete-recording-item");
+      const displayName = isModel ? record.display_name || record.id : recordingName(record);
+      section.append(element("h3", `${displayName}${displayName !== record.id ? ` · ${record.id}` : ""}`));
+      section.append(element("p", isModel ? "目录：EEG_Realtime/data/mi_models/" : `目录：EEG_Realtime/data/mi_recordings/${record.id}/`, "field-note"));
+      const list = element("ul");
+      for (const file of record.files) list.append(element("li", file));
+      if (!record.files.length) list.append(element("li", "（空目录）"));
+      section.append(list); files.append(section);
+    }
+    const fileCount = records.reduce((sum, record) => sum + record.files.length, 0);
+    $("deleteRecordingsTitle").textContent = isModel ? "确认删除模型" : "确认删除录制数据";
+    $("deleteLibraryWarning").textContent = isModel ? "以下模型文件将从本机永久删除，无法在页面中恢复。原始录制保留；删除当前加载模型会将其卸载。" : "以下录制目录及所列文件将从本机永久删除，无法在页面中恢复。已训练模型保留。";
+    $("deleteRecordingsSummary").textContent = `将删除 ${records.length} ${isModel ? "个模型" : "次录制"}、${fileCount} 个文件，包括搜索结果中隐藏的选中项。是否继续？`;
+    app.deletePreview = { kind, token: preview.token, ids: records.map((record) => record.id) };
+    $("deleteRecordingsDialog").showModal();
+    $("cancelDeleteRecordings").focus({ preventScroll: true });
+  }
+
+  function cancelRecordingDeletion() {
+    if (app.deleteSubmitting) return;
+    app.deletePreview = null;
+    $("deleteRecordingsDialog").close();
+    renderControls();
+  }
+
+  async function confirmRecordingDeletion() {
+    if (!app.deletePreview || app.deleteSubmitting || app.busy) return;
+    const preview = app.deletePreview;
+    app.deleteSubmitting = true;
+    app.busy = true;
+    renderControls();
+    let result = null, failure = "";
+    try {
+      result = await request(`/api/mi/${preview.kind === "model" ? "models" : "recordings"}/delete`, { token: preview.token }, { timeout: 60000 });
+    } catch (error) {
+      result = error.data || null;
+      failure = error.message;
+    } finally {
+      app.deletePreview = null;
+      app.deleteSubmitting = false;
+      $("deleteRecordingsDialog").close();
+      // A failed response can follow a partial deletion; always re-read disk state.
+      try { await bootstrap(); await poll(); }
+      catch (error) { failure += `${failure ? "；" : ""}列表刷新失败：${error.message}，请点击刷新核对。`; }
+      app.busy = false;
+      renderControls();
+    }
+    const deleted = Array.isArray(result?.deleted) ? result.deleted.length : 0;
+    const errors = (Array.isArray(result?.errors) ? result.errors : []).map((error) => typeof error === "string" ? error : `${error.id || "录制"}：${error.error || error.message || "删除失败"}`);
+    if (result?.ok === false && !failure && !errors.length) failure = result.error || "删除未全部完成，请核对列表。";
+    notify([`已删除 ${deleted} ${preview.kind === "model" ? "个模型" : "次录制"}。`, failure, ...errors].filter(Boolean).join("\n"), Boolean(failure || errors.length), true);
   }
 
   function renderSessionDetails() {
@@ -254,7 +440,9 @@
 
   function renderControls() {
     const recording = isRecording();
-    const blocked = app.busy || !app.token || !app.online;
+    const actionBlocked = app.busy || !app.token || !app.online || Boolean(app.deletePreview) || Boolean(app.renameTarget);
+    const evaluating = app.state?.evaluation?.status === "running";
+    const blocked = actionBlocked || evaluating;
     const training = isTraining();
     const status = app.state?.status;
     const connecting = status === "connecting";
@@ -284,23 +472,56 @@
     $("stopForTrainingButton").textContent = app.state?.source === "replay" ? "先暂停回放" : "先停止采集";
     $("featureSelect").disabled = blocked || recording || training;
     $("classifierSelect").disabled = blocked || recording || training;
+    $("useFilledData").disabled = blocked || recording || training;
+    $("recordingSearch").disabled = blocked || recording;
+    $("refreshTrainingButton").disabled = blocked || recording;
+    $("clearRecordingSelection").disabled = blocked || recording || training || !app.selected.size;
+    const validating = app.state?.recording?.validation?.status === "checking";
+    const libraryBlocked = blocked || recording || training || sampling || validating;
+    $("deleteRecordingsButton").disabled = libraryBlocked || !app.selected.size;
+    $("renameRecordingButton").disabled = libraryBlocked || app.selected.size !== 1;
+    $("renameModelButton").disabled = libraryBlocked || app.selectedModels.size !== 1;
+    $("deleteModelsButton").disabled = libraryBlocked || !app.selectedModels.size;
+    $("clearModelSelection").disabled = blocked || recording || training || !app.selectedModels.size;
+    $("modelSearch").disabled = blocked || recording;
+    $("modelLibraryHint").textContent = sampling || recording || training || validating || evaluating ? "停止采集或播放，并等待录制检查、训练或测试结束后可管理模型。" : "选中一个条目可重命名，点击星星收藏或取消收藏；删除前需再次确认。";
+    $("deleteRecordingsHint").textContent = sampling || recording || training || validating || evaluating ? "停止采集或播放，并等待录制检查、训练或测试结束后可删除。" : "删除前会列出全部选中文件，请再次确认。已训练模型保留。";
+    $("cancelDeleteRecordings").disabled = app.deleteSubmitting;
+    $("confirmDeleteRecordings").disabled = app.busy || app.deleteSubmitting || !app.deletePreview || !app.online || recording || training || sampling || validating || evaluating;
+    $("cancelLibraryRename").disabled = app.busy;
+    $("saveLibraryRename").disabled = app.busy || !app.renameTarget || !app.online || recording || training || sampling || validating || evaluating;
+    $("libraryNameInput").disabled = app.busy;
     const selectedModel = app.models.find((model) => model.id === $("modelSelect").value);
     $("loadModelButton").disabled = blocked || recording || training || !selectedModel || selectedModel.compatible === false;
     $("modelSelect").disabled = blocked || recording || training;
     for (const item of $("trainingSessions").querySelectorAll("input")) item.disabled = blocked || recording || training;
-    $("selectedSessions").textContent = `已选 ${app.selected.size} 次录制`;
+    for (const item of $("modelLibrary").querySelectorAll("input")) item.disabled = blocked || recording || training;
+    for (const list of [$("trainingSessions"), $("modelLibrary")]) for (const button of list.querySelectorAll("button")) button.disabled = libraryBlocked;
+    const visibleIds = new Set(visibleTrainingSessions().map((session) => session.id));
+    const hiddenSelected = [...app.selected].filter((id) => !visibleIds.has(id)).length;
+    $("selectedSessions").textContent = `已选 ${app.selected.size} 次录制${hiddenSelected ? `（${hiddenSelected} 次不在当前搜索结果中）` : ""}`;
+    const visibleModelIds = new Set(visibleModels().map((model) => model.id));
+    const hiddenModels = [...app.selectedModels].filter((id) => !visibleModelIds.has(id)).length;
+    $("selectedModels").textContent = `已选 ${app.selectedModels.size} 个模型${hiddenModels ? `（${hiddenModels} 个不在当前搜索结果中）` : ""}`;
+    $("chooseReplayModel").disabled = blocked || recording || training;
     for (const tab of document.querySelectorAll(".tab")) tab.disabled = recording && tab.dataset.tab !== "acquisition";
+    window.MIEvaluationUI?.render(app.state, app.online, actionBlocked);
     setRecordingMode(recording);
   }
 
   function selectTab(name) {
     if (isRecording() && name !== "acquisition") return;
+    app.activeTab = name;
     for (const tab of document.querySelectorAll(".tab")) {
       const active = tab.dataset.tab === name;
       tab.classList.toggle("active", active);
       tab.setAttribute("aria-selected", String(active));
       $(tab.getAttribute("aria-controls")).hidden = !active;
     }
+    document.querySelector(".waveform-card").hidden = name === "evaluation";
+    const replaySession = app.sessions.find((item) => item.id === app.state?.playback?.id);
+    const simulated = app.state?.source === "demo" || (app.state?.source === "replay" && replaySession?.source === "demo");
+    $("demoBanner").hidden = name === "evaluation" || !simulated;
     app.waveDirty = true;
   }
 
@@ -572,7 +793,7 @@
     $("sourceBadge").textContent = state.source === "device" ? "DEVICE" : state.source === "replay" ? "REPLAY" : "DEMO";
     const replaySession = app.sessions.find((item) => item.id === state.playback?.id);
     const simulated = state.source === "demo" || (state.source === "replay" && replaySession?.source === "demo");
-    $("demoBanner").hidden = !simulated;
+    $("demoBanner").hidden = app.activeTab === "evaluation" || !simulated;
     const telemetry = state.telemetry || {};
     $("packetCount").textContent = finite(telemetry.packets) ? telemetry.packets.toLocaleString() : "—";
     $("lostCount").textContent = finite(telemetry.lost_packets) ? telemetry.lost_packets.toLocaleString() : "—";
@@ -593,12 +814,24 @@
     $("waveSource").textContent = sourceText(state.source);
     $("waveformCaption").textContent = state.source === "replay" ? "回放时间轴 · 色带为录制标注，与预测独立" : "固定顺序：O2 · O1 · P8 · P7 · C4 · C3 · FP1 · FP2";
     renderPrediction(state.prediction);
+    renderReplayPrediction(state);
     renderHistory(state.predictions || []);
     renderTraining(state.training || {}, state.model || {});
     renderRecordingValidation(state.recording?.validation);
     renderEvents(state.events || []);
     renderControls();
     app.waveDirty = true;
+  }
+
+  function renderReplayPrediction(state) {
+    const model = state.model || {}, pred = state.prediction || {};
+    const replay = state.source === "replay" && state.playback?.loaded;
+    $("replayModelName").textContent = model.available ? `当前模型：${model.display_name || app.models.find((row) => row.id === model.id)?.display_name || model.id}${!replay ? " · 等待载入录制" : model.compatible === false ? " · 与回放数据不兼容" : ""}` : "尚未加载在线模型。整段录制评估可直接进入“04 模型测试”。";
+    const hasPrediction = replay && model.available && model.compatible !== false && typeof pred.label === "string";
+    $("replayPredictionLabel").textContent = hasPrediction ? label(pred.label) : "—";
+    $("replayPredictionConfidence").textContent = hasPrediction ? percent(pred.confidence) : "—";
+    $("replayPredictionStatus").textContent = replay ? STATUS_LABELS[pred.status] || pred.status || "等待预测" : "等待回放";
+    $("replayPredictionReason").textContent = !replay ? "载入录制并播放后显示分类结果。" : model.compatible === false ? model.reason || "请选择匹配录制来源的模型。" : reasonText(pred.reason) || "录制标注与模型预测分别展示。";
   }
 
   function renderRecordingPacketLoss(recording) {
@@ -639,7 +872,7 @@
     for (const error of Array.isArray(gapFill.errors) ? gapFill.errors : []) {
       details.append(element("p", String(error), "diagnostic-warning"));
     }
-    details.append(element("p", "补点使用缺口两端样本的逐通道均值，属于估算值。回放和训练仍使用原始 samples.csv，含缺口的任务继续排除；处理记录见 gap_fill.json。", "field-note"));
+    details.append(element("p", "补点使用缺口两端样本的逐通道均值，属于估算值。回放使用原始 samples.csv；训练可开启“使用补齐数据训练”，关闭时含缺口任务继续排除。处理记录见 gap_fill.json。", "field-note"));
   }
 
   function renderRecordingValidation(validation) {
@@ -736,9 +969,11 @@
     $("trainingBadge").textContent = STATUS_LABELS[training.status] || "未训练";
     $("trainingBadge").className = `tag${training.status === "running" || training.status === "complete" ? " active" : training.status === "error" ? " error" : ""}`;
     $("activeModel").textContent = model.available ? `${model.feature || "—"} + ${String(model.classifier || "—").toUpperCase()}` : "未加载模型";
-    $("modelDetails").textContent = model.available ? model.compatible === false ? `当前模型未启用：${model.reason || "模型与当前流程或数据来源不兼容"}` : `当前：${model.id}。真实设备需使用真实录制训练的模型。` : "采集与回放均可使用匹配数据来源的模型；旧版模型需重新训练后加载。";
+    $("modelDetails").textContent = model.available ? model.compatible === false ? `当前模型未启用：${model.reason || "模型与当前流程或数据来源不兼容"}` : `当前：${model.display_name || model.id}。真实设备需使用真实录制训练的模型。` : "采集与回放均可使用匹配数据来源的模型；旧版模型需重新训练后加载。";
     const hasAttempt = ["running", "complete", "error"].includes(training.status);
-    const context = hasAttempt ? `本次训练 · ${STATUS_LABELS[training.status]}` : model.available ? `当前模型 · ${model.id}` : "尚未训练";
+    const useFilled = hasAttempt ? training.use_filled ?? training.diagnostics?.use_filled : model.diagnostics?.use_filled;
+    const dataMode = typeof useFilled === "boolean" ? ` · ${useFilled ? "补齐数据训练" : "原始数据训练"}` : "";
+    const context = (hasAttempt ? `本次训练 · ${STATUS_LABELS[training.status]}` : model.available ? `当前模型 · ${model.display_name || model.id}` : "尚未训练") + dataMode;
     $("trainingResultContext").textContent = context;
     // A new attempt owns this area even when it fails before metrics exist.
     // Never show a previous model's success as the new attempt's outcome.
@@ -816,6 +1051,10 @@
       return;
     }
     const count = (value) => finite(value) ? value.toLocaleString("zh-CN") : "—";
+    if (typeof diagnostics.use_filled === "boolean") {
+      panel.append(element("p", diagnostics.use_filled ? `已开启补齐数据训练 · ${count(diagnostics.recordings_with_interpolation)} 次录制补入 ${count(diagnostics.interpolated_samples)} 点 · ${count(diagnostics.interpolated_windows)} 个有效窗口含补点。` : "本次使用原始数据训练，含缺口的任务按原规则排除。", "field-note"));
+      if (diagnostics.use_filled) panel.append(element("p", "补点属于估算值，所示训练、校准和测试指标均基于此次数据选项；时序与信号质量检查继续执行。", "diagnostic-warning"));
+    }
     const totals = element("div", undefined, "diagnostic-totals");
     for (const [title, accepted, candidate] of [["保留 / 候选窗口", diagnostics.accepted_windows, diagnostics.candidate_windows], ["保留 / 候选试次", diagnostics.accepted_trials, diagnostics.candidate_trials]]) {
       const item = element("div", undefined, "diagnostic-total");
@@ -868,6 +1107,11 @@
         item.append(element("p", `窗口保留 / 候选 ${count(session.accepted_windows)} / ${count(session.candidate_windows)}；试次保留 / 候选 ${count(session.accepted_trials)} / ${count(session.candidate_trials)}`));
         item.append(element("p", ["rest", "left_mi", "right_mi"].map((kind) => `${label(kind, true)}保留 ${count(session.per_class?.[kind]?.accepted_trials)} 试次`).join(" · ")));
         item.append(element("p", `告警 ${count(session.warning_windows)} 窗，其中保留 ${count(session.accepted_warning_windows)} 窗；拒绝原因：${describeCounts(session.rejection_reasons) || "无"}`));
+        if (diagnostics.use_filled && session.training_data) {
+          const data = session.training_data;
+          const gaps = (value) => Array.isArray(value) ? value.length : value;
+          item.append(element("p", `补入 ${count(data.filled_sample_count)} 点 · 已补 ${count(gaps(data.filled_gaps))} 个缺口 · 未补 ${count(gaps(data.unfilled_gaps))} 个缺口`));
+        }
         const audit = session.timestamp_audit;
         if (audit?.status === "suspect") item.append(element("p", `时间轴异常：最大超前 ${fmt(audit.max_future_lead_s, 3)} 秒，排除试次 ${(audit.rejected_trial_ids || []).join("、")}。超过 0.25 秒的整试次不用于训练。`, "diagnostic-warning"));
         else if (audit?.status === "unverified") item.append(element("p", audit.warning || "缺少时钟锚点，时间轴一致性未验证。", "diagnostic-warning"));
@@ -1007,8 +1251,24 @@
     return action(() => discoverDevice());
   });
   for (const id of ["refreshSessionsButton", "refreshTrainingButton"]) $(id).addEventListener("click", () => action(bootstrap));
+  $("recordingSearch").addEventListener("input", renderTrainingSessions);
+  $("modelSearch").addEventListener("input", renderModelLibrary);
+  $("clearRecordingSelection").addEventListener("click", () => { app.selected.clear(); renderTrainingSessions(); });
+  $("clearModelSelection").addEventListener("click", () => { app.selectedModels.clear(); renderModelLibrary(); });
+  $("renameRecordingButton").addEventListener("click", () => beginLibraryRename("recording"));
+  $("renameModelButton").addEventListener("click", () => beginLibraryRename("model"));
+  $("cancelLibraryRename").addEventListener("click", cancelLibraryRename);
+  $("saveLibraryRename").addEventListener("click", () => { void saveLibraryRename(); });
+  $("renameLibraryDialog").addEventListener("cancel", (event) => { event.preventDefault(); cancelLibraryRename(); });
+  $("libraryNameInput").addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); void saveLibraryRename(); } });
+  $("deleteRecordingsButton").addEventListener("click", () => action(previewRecordingDeletion));
+  $("deleteModelsButton").addEventListener("click", () => action(() => previewLibraryDeletion("model")));
+  $("cancelDeleteRecordings").addEventListener("click", cancelRecordingDeletion);
+  $("confirmDeleteRecordings").addEventListener("click", () => { void confirmRecordingDeletion(); });
+  $("deleteRecordingsDialog").addEventListener("cancel", (event) => { event.preventDefault(); cancelRecordingDeletion(); });
   $("replaySession").addEventListener("change", () => { renderSessionDetails(); renderControls(); });
   $("modelSelect").addEventListener("change", renderControls);
+  $("chooseReplayModel").addEventListener("click", () => { selectTab("evaluation"); $("evaluationModelSearch").focus(); });
   $("loadReplayButton").addEventListener("click", () => action(async () => {
     await request("/api/mi/replay/load", { id: $("replaySession").value });
     notify("回放已载入。点击播放，或拖动时间轴查看信号与标注。");
@@ -1020,7 +1280,7 @@
   $("replaySeek").addEventListener("input", () => { app.seeking = true; $("replayPosition").textContent = clockText(Number($("replaySeek").value), true); });
   $("replaySeek").addEventListener("change", () => { const position = Number($("replaySeek").value); void action(async () => { try { await replayAction("seek", { position_s: position }); } finally { app.seeking = false; } }); });
   $("trainButton").addEventListener("click", () => action(async () => {
-    await request("/api/mi/train", { ids: [...app.selected], feature: $("featureSelect").value, classifier: $("classifierSelect").value });
+    await request("/api/mi/train", { ids: [...app.selected], feature: $("featureSelect").value, classifier: $("classifierSelect").value, use_filled: $("useFilledData").checked });
     notify("训练已提交，完成后将显示验证结果。");
   }));
   $("stopForTrainingButton").addEventListener("click", () => action(async () => {
@@ -1041,6 +1301,7 @@
   window.addEventListener("resize", () => { app.waveDirty = true; });
   if (window.ResizeObserver) new ResizeObserver(() => { app.waveDirty = true; }).observe($("waveCanvas"));
   document.addEventListener("keydown", (event) => {
+    if ($("deleteRecordingsDialog").open || $("renameLibraryDialog").open) return;
     if (event.key === "Tab" && isRecording()) {
       event.preventDefault();
       $("focusStopRecordButton").focus({ preventScroll: true });
@@ -1056,6 +1317,7 @@
   window.addEventListener("pagehide", handleLostFocus);
 
   async function initialize() {
+    window.MIEvaluationUI?.initialize({ request, action, refresh: bootstrap, reasonText });
     renderControls();
     requestAnimationFrame(frame);
     try { await bootstrap(); await poll(); }

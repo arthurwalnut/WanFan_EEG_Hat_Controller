@@ -16,6 +16,7 @@ from urllib.parse import urlsplit, parse_qs
 
 from .engine import Engine
 from .sources import discover_devices
+from .mi_test_job import handle_evaluation_get
 
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = Path(__file__).resolve().parent / "static"
@@ -76,7 +77,9 @@ class EEGServer(ThreadingHTTPServer):
         # until its acquisition worker has actually exited and recording closed.
         attributes = vars(workflow)
         worker = attributes.get("worker")
+        evaluation = attributes.get("evaluation")
         return (workflow.status in ("connecting", "running", "replay") or
+                (evaluation is not None and evaluation.active()) or
                 attributes.get("recorder") is not None or
                 (isinstance(worker, threading.Thread) and worker.is_alive()))
 
@@ -200,6 +203,8 @@ class Handler(BaseHTTPRequestHandler):
                                 "sample_rate": 250, "version": "2.0.0"})
                 elif path == "/api/mi/state":
                     self._json(engine.snapshot())
+                elif handle_evaluation_get(self, engine.evaluation):
+                    pass
                 elif path == "/api/mi/predictions":
                     after = int(parse_qs(urlsplit(self.path).query).get("after", ["0"])[0])
                     self._json(engine.prediction_records(after))
@@ -217,7 +222,7 @@ class Handler(BaseHTTPRequestHandler):
                         "models": self.server.engine.store.model_files(),
                         "defaults": {"sample_rate": 250, "channels": 8},
                         "version": "1.0.0"})
-        elif path in ("/", "/mi", "/mi.html", "/mi.js", "/mi.css", "/robot-ui.js", "/robot-ui.css", "/cvep", "/cvep.html", "/cvep.js", "/cvep.css", "/ssvep", "/ssvep.html", "/ssvep.js", "/ssvep.css", "/training-report.js", "/training-report.css", "/legacy", "/index.html", "/app.js", "/style.css"):
+        elif path in ("/", "/mi", "/mi.html", "/mi.js", "/mi-evaluation.js", "/mi.css", "/robot-ui.js", "/robot-ui.css", "/cvep", "/cvep.html", "/cvep.js", "/cvep.css", "/ssvep", "/ssvep.html", "/ssvep.js", "/ssvep.css", "/training-report.js", "/training-report.css", "/legacy", "/index.html", "/app.js", "/style.css"):
             filename = ("mi.html" if path in ("/", "/mi") else "cvep.html" if path == "/cvep"
                         else "ssvep.html" if path == "/ssvep"
                         else "index.html" if path == "/legacy" else path[1:])
@@ -321,6 +326,13 @@ class Handler(BaseHTTPRequestHandler):
                 "/api/mi/replay/load": lambda: mi.load_replay(body.get("id")),
                 "/api/mi/replay/control": lambda: mi.replay_control(body),
                 "/api/mi/train": lambda: mi.train(body),
+                "/api/mi/evaluation/start": lambda: mi.start_evaluation(body),
+                "/api/mi/evaluation/cancel": lambda: mi.evaluation.cancel(body.get("id")),
+                "/api/mi/recordings/delete-preview": lambda: mi.preview_recording_deletion(body),
+                "/api/mi/recordings/delete": lambda: mi.delete_recordings(body),
+                "/api/mi/library/update": lambda: mi.update_library(body),
+                "/api/mi/models/delete-preview": lambda: mi.preview_model_deletion(body),
+                "/api/mi/models/delete": lambda: mi.delete_models(body),
                 "/api/mi/model/load": lambda: mi.load_model(body.get("id")),
                 "/api/mi/robot/configure": lambda: mi.robot_configure(body),
                 "/api/mi/robot/heartbeat": lambda: mi.robot_heartbeat(body),
@@ -331,7 +343,7 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("未知八通道操作。")
             # Both workspaces share the same physical UDP endpoint and device.
             with self.server.workflow_lock:
-                if (path in ("/api/mi/start", "/api/mi/replay/load") or
+                if (path in ("/api/mi/start", "/api/mi/replay/load", "/api/mi/evaluation/start") or
                         (path == "/api/mi/replay/control" and body.get("action") == "play")):
                     if self.server.active(self.server.cvep_engine):
                         raise RuntimeError("c-VEP 工作台仍在采集或回放，请先在 /cvep 停止。")

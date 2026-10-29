@@ -484,13 +484,15 @@ def _display_audit(metadata, events, acks, reasons):
             "note": "eligible 仅表示时序筛选通过，信号硬质量及训练样本量另行校验；软件显示确认不是硬件同步。"}
 
 
-def load_session(path):
-    """Read all raw samples; use timing_valid to exclude uncertain/incomplete tasks.
+def load_session(path, *, use_filled=False):
+    """Read raw samples, optionally reconstructing verified packet-loss gaps.
 
     A valid manifest left in ``recording`` status by interruption is recoverable
     from its flushed CSV and event log. Corrupted/truncated rows are reported,
     never silently discarded. Completed earlier tasks can survive an aborted run.
     """
+    if type(use_filled) is not bool:
+        raise ValueError("use_filled must be an explicit boolean")
     path = Path(path)
     metadata = _read_manifest(path)
     events, acks = [], {}
@@ -532,6 +534,15 @@ def load_session(path):
     samples = np.asarray(values, dtype=np.float64).reshape((-1, len(CHANNELS)))
     times = np.asarray(timestamps, dtype=np.float64)
     indices_array, segment_array = np.asarray(indices, dtype=np.int64), np.asarray(segments, dtype=np.int64)
+    receipt_array = np.asarray(received, dtype=np.float64)
+    interpolated = np.zeros(len(samples), dtype=bool)
+    training_data = {"use_filled": False, "status": "disabled", "source_file": "samples.csv",
+                     "raw_sample_count": len(samples), "filled_sample_count": 0,
+                     "filled_gaps": [], "unfilled_gaps": []}
+    if use_filled:
+        from .mi_gap_export import fill_training_samples
+        samples, times, indices_array, segment_array, receipt_array, interpolated, training_data = fill_training_samples(
+            path, metadata, samples, times, indices_array, segment_array, receipt_array)
     labels = np.full(len(times), "interval", dtype="U16")
     trials = np.zeros(len(times), dtype=np.int64)
     timing_valid = np.zeros(len(times), dtype=bool)
@@ -572,19 +583,28 @@ def load_session(path):
         if valid_end <= valid_start:
             reasons[phase["trial"]].append("invalid_display_order")
         timing_valid[mask & (times >= valid_start) & (times < valid_end)] = True
-    audit, _ = _timestamp_audit(metadata, events, times, np.asarray(received, dtype=float), trials)
+    # Synthetic rows have no receipt evidence. Audit the original packets only;
+    # interpolation cannot dilute or conceal an invalid real packet clock.
+    measured = ~interpolated
+    audit, _ = _timestamp_audit(metadata, events, times[measured], receipt_array[measured], trials[measured])
     excluded = np.isin(trials, audit["rejected_trial_ids"])
     audit["excluded_timing_valid_samples"] = int(np.sum(timing_valid & excluded))
     timing_valid[excluded] = False
     for trial in audit["rejected_trial_ids"]:
         reasons[trial].append("clock_future" if audit["available"] else "clock_unverified")
+    for trial in training_data.get("cross_trial_rejected_ids", []):
+        reasons[trial].append("interpolation_cross_trial")
+    if use_filled:
+        for phase in metadata["plan"]:
+            if phase["phase"] == "task" and not np.any(measured & (trials == phase["trial"])):
+                reasons[phase["trial"]].append("task_without_measured_samples")
     display_audit = _display_audit(metadata, events, acks, reasons)
     timing_valid[np.isin(trials, display_audit["rejected_trial_ids"])] = False
-    metadata = dict(metadata, timestamp_audit=audit, display_audit=display_audit)
+    metadata = dict(metadata, timestamp_audit=audit, display_audit=display_audit, training_data=training_data)
     return {"metadata": metadata, "samples": samples, "times": times, "indices": indices_array,
             "segments": segment_array, "labels": labels, "trials": trials, "timing_valid": timing_valid,
             "events": events, "acknowledgements": list(acks.values()),
-            "receive_monotonic": np.asarray(received, dtype=np.float64)}
+            "receive_monotonic": receipt_array, "is_interpolated": interpolated}
 
 
 def list_sessions(base):

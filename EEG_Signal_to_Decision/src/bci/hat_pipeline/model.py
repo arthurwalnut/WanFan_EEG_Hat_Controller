@@ -327,6 +327,7 @@ def train_model(sessions, feature="bandpower", classifier="lda"):
                  "探索性试次留出：三个集合的试次不重叠，但可能来自同次录制并共享连续滤波历史；"
                  "不属于完全独立录制验证。至少补足能各含三类的三组独立录制可采用整录制留出。")}
     report["split_metrics"] = {}
+    report["training_data"] = dict(dataset["metadata"]["training_data"])
     for name, mask in zip(("train", "calibration", "test"), masks):
         report[name + "_groups"] = sorted(np.unique(groups[mask]).tolist())
         report[name + "_sessions"] = sorted(np.unique(dataset["session_ids"][mask]).tolist())
@@ -341,6 +342,8 @@ def train_model(sessions, feature="bandpower", classifier="lda"):
             split_report[prefix + "recall_per_class"] = np.divide(np.diag(matrix), totals,
                 out=np.zeros(3, dtype=float), where=totals > 0).tolist()
         split_report["label_order"] = list(LABELS)
+        split_report["interpolated_windows"] = int(np.count_nonzero(dataset["window_interpolated_samples"][mask]))
+        split_report["interpolated_sample_occurrences"] = int(dataset["window_interpolated_samples"][mask].sum())
         report["split_metrics"][name] = split_report
     features = pipeline.named_steps["scaler"].transform(pipeline.named_steps["features"].transform(X[train]))
     centers = np.stack([features[y[train] == label].mean(axis=0) for label in range(3)])

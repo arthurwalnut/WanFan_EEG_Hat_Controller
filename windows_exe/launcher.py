@@ -40,12 +40,14 @@ def runtime_check() -> dict:
     from eeg_realtime import server
     modules = ["eeg_realtime.mi_engine", "eeg_realtime.cvep_engine",
                "eeg_realtime.mi_gap_export",
+               "eeg_realtime.mi_delete",
+               "eeg_realtime.mi_library", "eeg_realtime.mi_evaluation", "eeg_realtime.mi_test_job",
                "eeg_realtime.ssvep_engine", "eeg_realtime.robot_bridge",
                "bci.hat_pipeline.model", "bci.cvep_pipeline.model",
                "bci.ssvep_pipeline.model"]
     imported = {name: str(importlib.import_module(name).__file__) for name in modules}
     assets = sorted(p.name for p in server.STATIC.iterdir() if p.is_file())
-    for name in ("mi.html", "cvep.html", "ssvep.html", "index.html", "training-report.js"):
+    for name in ("mi.html", "mi-evaluation.js", "cvep.html", "ssvep.html", "index.html", "training-report.js"):
         if name not in assets:
             raise RuntimeError(f"缺少网页资源：{name}")
     return {"ok": True, "frozen": bool(getattr(sys, "frozen", False)),
