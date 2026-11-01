@@ -17,6 +17,8 @@ from urllib.parse import urlsplit, parse_qs
 from .engine import Engine
 from .sources import discover_devices
 from .mi_test_job import handle_evaluation_get
+from .impedance import ImpedanceEngine
+from .impedance_api import dispatch as dispatch_impedance, require_impedance_idle
 
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = Path(__file__).resolve().parent / "static"
@@ -46,6 +48,7 @@ class EEGServer(ThreadingHTTPServer):
         self.mi_engine = None
         self.cvep_engine = None
         self.ssvep_engine = None
+        self.impedance_engine = ImpedanceEngine()
         super().__init__(address, Handler)
 
     def get_mi_engine(self):
@@ -85,18 +88,21 @@ class EEGServer(ThreadingHTTPServer):
 
     def server_close(self):
         try:
-            if self.ssvep_engine is not None:
-                self.ssvep_engine.close()
+            self.impedance_engine.close()
         finally:
             try:
-                if self.cvep_engine is not None:
-                    self.cvep_engine.close()
+                if self.ssvep_engine is not None:
+                    self.ssvep_engine.close()
             finally:
                 try:
-                    if self.mi_engine is not None:
-                        self.mi_engine.close()
+                    if self.cvep_engine is not None:
+                        self.cvep_engine.close()
                 finally:
-                    super().server_close()
+                    try:
+                        if self.mi_engine is not None:
+                            self.mi_engine.close()
+                    finally:
+                        super().server_close()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -164,7 +170,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/health":
             self._json({"service": "eeg-realtime", "api_version": 1,
                         "host": self.server.server_address[0], "port": self.server.server_address[1],
-                        "pid": os.getpid(), "workflows": ["mi", "cvep", "ssvep"]})
+                        "pid": os.getpid(), "workflows": ["mi", "cvep", "ssvep", "impedance"]})
+        elif path == "/api/impedance/state":
+            self._json(self.server.impedance_engine.snapshot())
         elif path in ("/api/cvep/clock", "/api/ssvep/clock"):
             # QPC is a separate high-resolution time domain. On Windows Python
             # 3.12 the old MI monotonic clock may have ~15.6 ms resolution.
@@ -222,7 +230,7 @@ class Handler(BaseHTTPRequestHandler):
                         "models": self.server.engine.store.model_files(),
                         "defaults": {"sample_rate": 250, "channels": 8},
                         "version": "1.0.0"})
-        elif path in ("/", "/mi", "/mi.html", "/mi.js", "/mi-evaluation.js", "/mi.css", "/robot-ui.js", "/robot-ui.css", "/cvep", "/cvep.html", "/cvep.js", "/cvep.css", "/ssvep", "/ssvep.html", "/ssvep.js", "/ssvep.css", "/training-report.js", "/training-report.css", "/legacy", "/index.html", "/app.js", "/style.css"):
+        elif path in ("/", "/mi", "/mi.html", "/mi.js", "/mi-evaluation.js", "/mi.css", "/impedance.css", "/robot-ui.js", "/robot-ui.css", "/cvep", "/cvep.html", "/cvep.js", "/cvep.css", "/ssvep", "/ssvep.html", "/ssvep.js", "/ssvep.css", "/training-report.js", "/training-report.css", "/legacy", "/index.html", "/app.js", "/style.css"):
             filename = ("mi.html" if path in ("/", "/mi") else "cvep.html" if path == "/cvep"
                         else "ssvep.html" if path == "/ssvep"
                         else "index.html" if path == "/legacy" else path[1:])
@@ -287,6 +295,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def _dispatch(self, path, body):
         engine = self.server.engine
+        if path.startswith("/api/impedance/"):
+            with self.server.workflow_lock:
+                return dispatch_impedance(self.server, path, body, self.server.get_mi_engine(),
+                                          (engine, self.server.cvep_engine, self.server.ssvep_engine))
         if path.startswith(("/api/cvep/", "/api/ssvep/")):
             is_ssvep = path.startswith("/api/ssvep/")
             cvep = self.server.get_ssvep_engine() if is_ssvep else self.server.get_cvep_engine()
@@ -311,6 +323,7 @@ class Handler(BaseHTTPRequestHandler):
                     raise RuntimeError("正在录制，请先在刺激页面结束实验；页面已关闭时请使用紧急停止。")
                 if (path in ("/api/cvep/start", "/api/cvep/replay/load") or
                         (path == "/api/cvep/replay/control" and body.get("action") == "play")):
+                    require_impedance_idle(self.server)
                     if self.server.active(engine) or self.server.active(self.server.mi_engine) or self.server.active(other_visual):
                         raise RuntimeError("其他工作台仍在采集或回放，请先停止，再使用当前视觉诱发工作台。")
                 return actions[path]()
@@ -343,8 +356,11 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("未知八通道操作。")
             # Both workspaces share the same physical UDP endpoint and device.
             with self.server.workflow_lock:
+                if path in ("/api/mi/record/start", "/api/mi/robot/test", "/api/mi/robot/configure"):
+                    require_impedance_idle(self.server)
                 if (path in ("/api/mi/start", "/api/mi/replay/load", "/api/mi/evaluation/start") or
                         (path == "/api/mi/replay/control" and body.get("action") == "play")):
+                    require_impedance_idle(self.server)
                     if self.server.active(self.server.cvep_engine):
                         raise RuntimeError("c-VEP 工作台仍在采集或回放，请先在 /cvep 停止。")
                     if self.server.active(self.server.ssvep_engine):
@@ -354,6 +370,7 @@ class Handler(BaseHTTPRequestHandler):
                 return actions[path]()
         if path == "/api/start":
             with self.server.workflow_lock:
+                require_impedance_idle(self.server)
                 if self.server.active(self.server.cvep_engine):
                     raise RuntimeError("c-VEP 工作台仍在采集或回放，请先在 /cvep 停止。")
                 if self.server.active(self.server.ssvep_engine):

@@ -32,6 +32,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\configure-autost
 
 ## 详细说明
 
+- [00 电极阻抗：模式切换、算法与验证边界](docs/IMPEDANCE.md)
 - [运动想象录制、训练、回放与机械臂](docs/MI_WORKFLOW.md)
 - [c-VEP 原理与操作](docs/CVEP_GUIDE.md)
 - [c-VEP 中断排查](docs/CVEP_TROUBLESHOOTING.md)

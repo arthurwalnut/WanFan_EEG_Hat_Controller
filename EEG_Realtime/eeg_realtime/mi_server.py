@@ -15,12 +15,15 @@ from urllib.parse import parse_qs, urlsplit
 
 from .sources import discover_devices
 from .mi_test_job import handle_evaluation_get
+from .impedance import ImpedanceEngine
+from .impedance_api import dispatch as dispatch_impedance, require_impedance_idle
 
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = Path(__file__).resolve().parent / "static"
 MAX_BODY = 65536
 STATIC_FILES = {"/": "mi.html", "/mi": "mi.html", "/mi.html": "mi.html",
                 "/mi.js": "mi.js", "/mi.css": "mi.css",
+                "/impedance.css": "impedance.css",
                 "/mi-evaluation.js": "mi-evaluation.js",
                 "/robot-ui.js": "robot-ui.js", "/robot-ui.css": "robot-ui.css"}
 
@@ -44,6 +47,7 @@ class MIServer(ThreadingHTTPServer):
         self.csrf_token = secrets.token_urlsafe(32)
         self.discovery_lock = threading.Lock()
         self.workflow_lock = threading.RLock()
+        self.impedance_engine = ImpedanceEngine()
         super().__init__(address, MIHandler)
 
     def server_bind(self):
@@ -53,7 +57,10 @@ class MIServer(ThreadingHTTPServer):
 
     def server_close(self):
         try:
-            self.engine.close()
+            try:
+                self.impedance_engine.close()
+            finally:
+                self.engine.close()
         finally:
             super().server_close()
 
@@ -123,7 +130,9 @@ class MIHandler(BaseHTTPRequestHandler):
             if path == "/api/health":
                 self._json({"service": "eeg-mi-robot", "api_version": 1,
                             "host": "127.0.0.1", "port": self.server.server_address[1],
-                            "pid": os.getpid(), "workflows": ["mi"]})
+                            "pid": os.getpid(), "workflows": ["mi", "impedance"]})
+            elif path == "/api/impedance/state":
+                self._json(self.server.impedance_engine.snapshot())
             elif path == "/api/mi/clock":
                 self._json({"server_time": time.monotonic(),
                             "clock_resolution_s": time.get_clock_info("monotonic").resolution})
@@ -215,6 +224,9 @@ class MIHandler(BaseHTTPRequestHandler):
             self._json({"error": f"操作失败：{exc}"}, 500)
 
     def _dispatch(self, path, body):
+        if path.startswith("/api/impedance/"):
+            with self.server.workflow_lock:
+                return dispatch_impedance(self.server, path, body, self.server.engine)
         if path == "/api/discover":
             if not self.server.discovery_lock.acquire(blocking=False):
                 raise RuntimeError("正在发现设备，请稍后重试。")
@@ -249,6 +261,10 @@ class MIHandler(BaseHTTPRequestHandler):
         if path not in actions:
             raise ValueError("未知 MI 操作。")
         with self.server.workflow_lock:
+            if (path in ("/api/mi/start", "/api/mi/replay/load", "/api/mi/evaluation/start",
+                         "/api/mi/record/start", "/api/mi/robot/test", "/api/mi/robot/configure") or
+                    (path == "/api/mi/replay/control" and body.get("action") == "play")):
+                require_impedance_idle(self.server)
             return actions[path]()
 
 

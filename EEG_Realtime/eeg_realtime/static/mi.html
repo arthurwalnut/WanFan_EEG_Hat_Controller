@@ -6,6 +6,7 @@
   <meta name="color-scheme" content="light">
   <title>EEG · 运动想象实验台</title>
   <link rel="stylesheet" href="/mi.css">
+  <link rel="stylesheet" href="/impedance.css">
   <link rel="stylesheet" href="/robot-ui.css">
   <script src="/robot-ui.js" defer></script>
   <script src="/mi-evaluation.js" defer></script>
@@ -21,12 +22,51 @@
     <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
     <div id="demoBanner" class="demo-banner"><span class="demo-dot"></span><b>演示数据</b><span>用于验证软件流程；演示模型不能用于真实设备。</span></div>
     <nav class="tabs" aria-label="实验工作区">
+      <button type="button" class="tab" data-tab="impedance" aria-selected="false" role="tab" aria-controls="impedancePane" id="impedanceTab"><span>00</span> 电极阻抗</button>
       <button type="button" class="tab active" data-tab="acquisition" aria-selected="true" role="tab" aria-controls="acquisitionPane" id="acquisitionTab"><span>01</span> 采集与提示</button>
       <button type="button" class="tab" data-tab="replay" aria-selected="false" role="tab" aria-controls="replayPane" id="replayTab"><span>02</span> 数据回放</button>
       <button type="button" class="tab" data-tab="training" aria-selected="false" role="tab" aria-controls="trainingPane" id="trainingTab"><span>03</span> 模型训练</button>
       <button type="button" class="tab" data-tab="evaluation" aria-selected="false" role="tab" aria-controls="evaluationPane" id="evaluationTab"><span>04</span> 模型测试</button>
       <button type="button" class="tab" data-tab="robot" aria-selected="false" role="tab" aria-controls="robotPane" id="robotTab"><span>05</span> 在线识别与机械臂</button>
     </nav>
+
+    <section id="impedancePane" class="tab-pane" role="tabpanel" aria-labelledby="impedanceTab" hidden>
+      <div class="impedance-grid">
+        <section class="card impedance-controls">
+          <div class="card-heading"><h2>检查电极阻抗</h2><span id="impedanceBadge" class="tag">待开始</span></div>
+          <p class="field-note">Check impedance · 切换设备测量模式，检查 8 个电极的接触状态。</p>
+          <label for="impedanceIp">设备 IPv4 地址</label>
+          <div class="input-action"><input id="impedanceIp" type="text" placeholder="例如 192.168.137.240" autocomplete="off" inputmode="decimal" spellcheck="false"><button id="impedanceDiscover" type="button" class="secondary">发现</button></div>
+          <div id="impedanceDiscovery" class="discovery-results" aria-live="polite"></div>
+          <div class="button-row"><button id="impedanceStart" type="button" class="primary" disabled>开始检查阻抗</button><button id="impedanceStop" type="button" class="secondary" disabled>停止检查</button></div>
+          <button id="impedanceEeg" type="button" class="secondary impedance-eeg" disabled>切回普通 EEG · 01</button>
+          <p class="field-note">检查时暂停 EEG 采集与识别。已连接的同一设备可在未录制时切换；演示、回放或其他工作台采集需先停止。切回普通 EEG 后可重新开始录制。</p>
+          <p id="impedanceMessage" class="impedance-message" role="status" aria-live="polite">点击“开始检查阻抗”连接设备。</p>
+          <p id="impedanceTarget" class="field-note" hidden></p>
+          <label for="impedanceProgress">测量窗口 <span id="impedanceWindow">等待数据</span></label>
+          <progress id="impedanceProgress" class="impedance-progress" value="0" max="1"></progress>
+          <dl class="telemetry"><div><dt>数据包</dt><dd id="impedancePackets">—</dd></div><div><dt>丢包</dt><dd id="impedanceLost">—</dd></div><div><dt>CRC 错误</dt><dd id="impedanceCrc">—</dd></div></dl>
+          <p id="impedanceAge" class="field-note">尚无实时读数</p>
+        </section>
+        <section class="card impedance-readings">
+          <div class="card-heading"><div><h2>8 通道实时阻抗 <span class="heading-unit">kΩ</span></h2><p>头顶视图 · 上方为额头 · 固定电极映射</p></div><span id="impedanceFreshness" class="tag">等待测量</span></div>
+          <div class="impedance-display">
+            <div class="impedance-head-wrap">
+              <span class="impedance-front">额头</span>
+              <div class="impedance-head" aria-label="电极帽阻抗头顶示意图">
+                <span class="impedance-nose" aria-hidden="true"></span><span class="impedance-ear left" aria-hidden="true"></span><span class="impedance-ear right" aria-hidden="true"></span>
+                <div id="impedanceElectrodes"></div>
+              </div>
+              <p class="field-note impedance-orientation">左侧 / L <span>右侧 / R</span></p>
+            </div>
+            <div class="impedance-table-wrap"><table class="impedance-table"><thead><tr><th>通道</th><th>电极</th><th>阻抗 / kΩ</th></tr></thead><tbody id="impedanceRows"></tbody></table></div>
+          </div>
+          <p class="field-note">每个读数由连续测量窗口计算。断流、切换或停止时清空当前值；“—”表示尚无有效测量。</p>
+          <div class="impedance-legend" aria-label="InBrain 参考色阶"><span class="grade-1">≤ 5 kΩ</span><span class="grade-2">5–10 kΩ</span><span class="grade-3">10–25 kΩ</span><span class="grade-4">&gt; 25 kΩ</span></div>
+          <p class="field-note">沿用 InBrain 参考色阶。250 kΩ 为显示上限；低 RMS、近饱和或估算达到上限时显示异常。电极位置仅为示意，请按实际电极接线核对通道。</p>
+        </section>
+      </div>
+    </section>
 
     <section id="acquisitionPane" class="tab-pane" role="tabpanel" aria-labelledby="acquisitionTab">
       <div class="acquisition-grid">

@@ -36,6 +36,7 @@
     clockUncertainty: null, clockResolution: null, lastFrameAt: null, lastVisibleElapsed: null,
     displayInFlight: false, lastDisplayElapsed: -Infinity, lastDisplayPhase: undefined,
     deletePreview: null, deleteSubmitting: false, renameTarget: null, activeTab: "acquisition",
+    impedance: null, impedanceOnline: false, impedanceAt: 0, impedanceRequestedAt: 0, impedancePolling: null, impedanceEpoch: 0, impedanceChanging: false,
   };
   const finite = (value) => typeof value === "number" && Number.isFinite(value);
   const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
@@ -45,6 +46,7 @@
   const isRecording = () => Boolean(app.state?.recording?.active);
   const isTraining = () => app.state?.training?.status === "running";
   const isLive = () => app.state?.status === "running" && ["demo", "device"].includes(app.state?.source);
+  const isImpedanceActive = () => Boolean(app.impedance?.active) || ["connecting", "running", "stopping"].includes(app.impedance?.status);
   const sourceText = (source) => SOURCES[source] || source || "—";
 
   function reasonText(value) {
@@ -63,7 +65,7 @@
     if (active) {
       app.restoreFocus = document.activeElement;
       $("cueCard").setAttribute("aria-modal", "true");
-      app.inertNodes = [...document.querySelectorAll(".topbar, .page-heading, .tabs, .control-stack, #replayPane, #trainingPane, #evaluationPane, #robotPane, .waveform-card, .online-grid, .event-panel, footer")].map((node) => [node, node.inert]);
+      app.inertNodes = [...document.querySelectorAll(".topbar, .page-heading, .tabs, .control-stack, #impedancePane, #replayPane, #trainingPane, #evaluationPane, #robotPane, .waveform-card, .online-grid, .event-panel, footer")].map((node) => [node, node.inert]);
       for (const [node] of app.inertNodes) node.inert = true;
       // Element focus stays in this window; no Fullscreen API or window focus change.
       if (document.hasFocus()) $("focusStopRecordButton").focus({ preventScroll: true });
@@ -442,7 +444,7 @@
     const recording = isRecording();
     const actionBlocked = app.busy || !app.token || !app.online || Boolean(app.deletePreview) || Boolean(app.renameTarget);
     const evaluating = app.state?.evaluation?.status === "running";
-    const blocked = actionBlocked || evaluating;
+    const blocked = actionBlocked || evaluating || isImpedanceActive();
     const training = isTraining();
     const status = app.state?.status;
     const connecting = status === "connecting";
@@ -505,23 +507,27 @@
     $("selectedModels").textContent = `已选 ${app.selectedModels.size} 个模型${hiddenModels ? `（${hiddenModels} 个不在当前搜索结果中）` : ""}`;
     $("chooseReplayModel").disabled = blocked || recording || training;
     for (const tab of document.querySelectorAll(".tab")) tab.disabled = recording && tab.dataset.tab !== "acquisition";
-    window.MIEvaluationUI?.render(app.state, app.online, actionBlocked);
+    window.MIEvaluationUI?.render(app.state, app.online, actionBlocked || isImpedanceActive());
+    if (isImpedanceActive()) for (const id of ["robotPreview", "robotTest", "robotEnable", "robotHost", "robotPort"]) $(id).disabled = true;
+    renderImpedance();
     setRecordingMode(recording);
   }
 
   function selectTab(name) {
     if (isRecording() && name !== "acquisition") return;
     app.activeTab = name;
+    document.body.classList.toggle("impedance-page", name === "impedance");
+    if (name === "impedance" && !$("impedanceIp").value) $("impedanceIp").value = app.state?.device_ip || $("deviceIp").value;
     for (const tab of document.querySelectorAll(".tab")) {
       const active = tab.dataset.tab === name;
       tab.classList.toggle("active", active);
       tab.setAttribute("aria-selected", String(active));
       $(tab.getAttribute("aria-controls")).hidden = !active;
     }
-    document.querySelector(".waveform-card").hidden = name === "evaluation";
+    document.querySelector(".waveform-card").hidden = ["evaluation", "impedance"].includes(name);
     const replaySession = app.sessions.find((item) => item.id === app.state?.playback?.id);
     const simulated = app.state?.source === "demo" || (app.state?.source === "replay" && replaySession?.source === "demo");
-    $("demoBanner").hidden = name === "evaluation" || !simulated;
+    $("demoBanner").hidden = ["evaluation", "impedance"].includes(name) || !simulated;
     app.waveDirty = true;
   }
 
@@ -532,6 +538,124 @@
     try { await callback(); await poll(); }
     catch (error) { notify(error.message, true, true); }
     finally { app.busy = false; renderControls(); }
+  }
+
+  const IMPEDANCE_POSITIONS = { O2: [65, 84], O1: [35, 84], P8: [82, 65], P7: [18, 65], C4: [70, 44], C3: [30, 44], FP1: [34, 19], FP2: [66, 19] };
+  function initializeImpedance() {
+    CHANNELS.forEach((name, index) => {
+      const electrode = element("div", undefined, "impedance-electrode");
+      electrode.id = `impedanceElectrode${index}`;
+      electrode.style.left = `${IMPEDANCE_POSITIONS[name][0]}%`;
+      electrode.style.top = `${IMPEDANCE_POSITIONS[name][1]}%`;
+      electrode.append(element("b", name), element("span", "—"));
+      $("impedanceElectrodes").append(electrode);
+      const row = element("tr"); row.id = `impedanceRow${index}`;
+      row.append(element("td", `CH${index + 1}`), element("td", name), element("td", "—"));
+      $("impedanceRows").append(row);
+    });
+  }
+
+  function renderImpedance() {
+    const state = app.impedance || {}, telemetry = state.telemetry || {};
+    const active = isImpedanceActive();
+    const online = app.impedanceOnline && performance.now() - app.impedanceAt < 2500;
+    const dataAge = finite(telemetry.age_s) ? telemetry.age_s + (performance.now() - app.impedanceRequestedAt) / 1000 : Infinity;
+    const estimateAge = finite(telemetry.estimate_age_s) ? telemetry.estimate_age_s + (performance.now() - app.impedanceRequestedAt) / 1000 : Infinity;
+    const staleSeconds = finite(state.stale_seconds) && state.stale_seconds > 0 ? state.stale_seconds : 1.2;
+    const fresh = !app.impedanceChanging && online && state.fresh === true && state.status === "running" && Math.max(dataAge, estimateAge) <= staleSeconds;
+    const blocked = app.busy || !app.token || !app.online || !online || isRecording() || isTraining() || app.state?.evaluation?.status === "running";
+    const incompatible = ["connecting", "running", "replay"].includes(app.state?.status) && app.state?.source !== "device";
+    $("impedanceStart").disabled = blocked || active || incompatible;
+    $("impedanceStop").disabled = app.busy || !app.token || (!active && state.status !== "error");
+    $("impedanceEeg").disabled = blocked || !state.device_ip || ["connecting", "running", "replay"].includes(app.state?.status);
+    $("impedanceIp").disabled = blocked || active;
+    $("impedanceDiscover").disabled = blocked || active;
+    for (const button of $("impedanceDiscovery").querySelectorAll("button")) button.disabled = blocked || active;
+    $("impedanceStart").textContent = app.state?.source === "device" && ["connecting", "running"].includes(app.state?.status) ? "切换为阻抗检查" : "开始检查阻抗";
+    $("impedanceBadge").textContent = !online ? "状态不可达" : ({ idle: "待开始", stopped: "已停止", connecting: "连接中", running: "阻抗模式", error: "测量异常", stopping: "停止中" }[state.status] || "待开始");
+    $("impedanceBadge").className = `tag${online && active ? " active" : !online || state.status === "error" ? " error" : ""}`;
+    $("impedanceMessage").textContent = app.impedanceChanging ? "正在切换设备模式，等待最新测量状态。" : !online ? "无法获取最新阻抗状态，当前读数已清空。" : state.message || "点击“开始检查阻抗”连接设备。";
+    $("impedanceTarget").hidden = !state.device_ip;
+    $("impedanceTarget").textContent = state.device_ip ? `实际连接目标：${state.device_ip}` : "";
+    const samples = online && active && finite(state.window_samples) ? state.window_samples : 0;
+    const required = finite(state.required_samples) && state.required_samples > 0 ? state.required_samples : 500;
+    $("impedanceProgress").max = required; $("impedanceProgress").value = samples;
+    $("impedanceWindow").textContent = `${Math.min(samples, required)} / ${required} 点 · ${fmt(state.window_seconds || 2, 1)} 秒`;
+    for (const [id, key] of [["impedancePackets", "packets"], ["impedanceLost", "lost_packets"], ["impedanceCrc", "crc_errors"]]) $(id).textContent = online && finite(telemetry[key]) ? telemetry[key].toLocaleString() : "—";
+    $("impedanceAge").textContent = online && active && finite(dataAge) ? `最近数据约 ${fmt(dataAge, 1)} 秒前` : "尚无实时读数";
+    $("impedanceFreshness").textContent = fresh ? "实时更新" : active && online ? "积累连续数据" : "无当前读数";
+    $("impedanceFreshness").className = `tag${fresh ? " active" : ""}`;
+    CHANNELS.forEach((name, index) => {
+      const channel = (state.channels || []).find((item) => item.name === name);
+      const valid = fresh && finite(channel?.kohm);
+      const abnormal = fresh && channel?.abnormal === true;
+      const text = valid ? fmt(channel.kohm, 1) : abnormal ? "异常" : "—";
+      const grade = valid ? channel.kohm <= 5 ? " grade-1" : channel.kohm <= 10 ? " grade-2" : channel.kohm <= 25 ? " grade-3" : " grade-4" : "";
+      const electrode = $(`impedanceElectrode${index}`), row = $(`impedanceRow${index}`);
+      electrode.className = `impedance-electrode${grade}${abnormal ? " abnormal" : ""}`;
+      electrode.lastElementChild.textContent = text;
+      const reason = { nonfinite: "无效采样", saturated: "信号近饱和", low_rms: "RMS 过低", upper_limit: "达到显示上限" }[channel?.reason] || "测量异常";
+      electrode.title = `${name}：${text}${valid ? " kΩ" : ""}${abnormal ? ` · 异常：${reason}` : ""}`;
+      row.className = abnormal ? "abnormal" : grade.trim();
+      row.lastElementChild.textContent = text;
+      if (abnormal) row.lastElementChild.append(element("small", `异常 · ${reason}`));
+    });
+    if (active && app.online) {
+      $("connectionStatus").textContent = online ? "阻抗检查中" : "阻抗状态不可达";
+      $("connectionStatus").className = `status-pill${online ? " live" : " error"}`;
+    }
+  }
+
+  function pollImpedance() {
+    if (app.impedanceChanging) return Promise.resolve();
+    if (app.impedancePolling) return app.impedancePolling;
+    const epoch = app.impedanceEpoch;
+    const requestedAt = performance.now();
+    app.impedancePolling = (async () => {
+      try {
+        const state = await request("/api/impedance/state", undefined, { timeout: 1800 });
+        if (app.impedanceChanging || epoch !== app.impedanceEpoch) return;
+        app.impedance = state; app.impedanceAt = performance.now(); app.impedanceRequestedAt = requestedAt; app.impedanceOnline = true;
+        if (!$("impedanceIp").value && state.device_ip) $("impedanceIp").value = state.device_ip;
+      } catch (_) { if (epoch === app.impedanceEpoch) app.impedanceOnline = false; }
+      finally { app.impedancePolling = null; renderControls(); }
+    })();
+    return app.impedancePolling;
+  }
+
+  async function impedanceCommand(command) {
+    if (app.busy || !app.token) return;
+    await action(async () => {
+      const ip = $("impedanceIp").value.trim();
+      if (command === "start" && !ip) throw new Error("请先发现设备或填写设备 IPv4 地址。");
+      app.impedanceEpoch++; app.impedanceChanging = true; app.impedanceOnline = false; renderImpedance();
+      try {
+        await request(`/api/impedance/${command}`, command === "start" ? { source: "device", device_ip: ip, switch_from_mi: true } : {});
+        if (command === "start") $("deviceIp").value = ip;
+        if (command === "eeg") { $("sourceSelect").value = "device"; $("deviceFields").hidden = false; $("deviceIp").value = app.impedance?.device_ip || ip; selectTab("acquisition"); }
+      } finally {
+        app.impedanceEpoch++; app.impedanceChanging = false;
+        if (app.impedancePolling) await app.impedancePolling;
+        await pollImpedance();
+      }
+    });
+  }
+
+  async function discoverImpedance() {
+    const preferred = $("impedanceIp").value.trim(), results = $("impedanceDiscovery");
+    results.textContent = "正在搜索设备…";
+    try {
+      const response = await request("/api/discover", { device_ip: preferred });
+      const selection = resolveDeviceAddress(response.devices, preferred);
+      $("impedanceIp").value = selection.ip;
+      const message = element("p", selection.kind === "multiple" ? "发现多台设备，请选择要检查的地址。" : selection.ip ? `当前地址：${selection.ip}${selection.kind === "manual" ? "（未收到身份回复，保留手动地址）" : ""}。` : "未发现设备，请检查网络或手动输入 IP。", "field-note");
+      results.replaceChildren(message);
+      for (const ip of selection.devices) {
+        const button = element("button", ip, "secondary small"); button.type = "button";
+        button.addEventListener("click", () => { if (!app.busy && !isImpedanceActive()) { $("impedanceIp").value = ip; message.textContent = `已选择 ${ip}。`; } });
+        results.append(button);
+      }
+    } catch (error) { results.textContent = `发现失败：${error.message}`; throw error; }
   }
 
   // Keep the same explicit selection policy in the legacy workspace.
@@ -577,7 +701,7 @@
   }
 
   async function connectSource() {
-    if (app.busy || !app.online || !app.token || isRecording() || isTraining() || app.state?.status === "connecting" || isLive()) return;
+    if (app.busy || !app.online || !app.token || isRecording() || isTraining() || isImpedanceActive() || app.state?.status === "connecting" || isLive()) return;
     await action(async () => {
       const source = $("sourceSelect").value;
       const ip = source === "device" ? await discoverDevice(true) : "";
@@ -588,7 +712,7 @@
   }
 
   async function startRecording() {
-    if (!isLive() || isRecording() || app.busy || !app.online) return;
+    if (!isLive() || isRecording() || app.busy || !app.online || isImpedanceActive()) return;
     const input = $("durationInput");
     if (!input.reportValidity()) return;
     if (document.hidden || !document.hasFocus()) { notify("请保持实验页面聚焦后开始录制。", true); return; }
@@ -793,7 +917,7 @@
     $("sourceBadge").textContent = state.source === "device" ? "DEVICE" : state.source === "replay" ? "REPLAY" : "DEMO";
     const replaySession = app.sessions.find((item) => item.id === state.playback?.id);
     const simulated = state.source === "demo" || (state.source === "replay" && replaySession?.source === "demo");
-    $("demoBanner").hidden = app.activeTab === "evaluation" || !simulated;
+    $("demoBanner").hidden = ["evaluation", "impedance"].includes(app.activeTab) || !simulated;
     const telemetry = state.telemetry || {};
     $("packetCount").textContent = finite(telemetry.packets) ? telemetry.packets.toLocaleString() : "—";
     $("lostCount").textContent = finite(telemetry.lost_packets) ? telemetry.lost_packets.toLocaleString() : "—";
@@ -1240,6 +1364,10 @@
   }
 
   // Acquisition actions never run automatically: initial mode is only a UI choice.
+  $("impedanceStart").addEventListener("click", () => { void impedanceCommand("start"); });
+  $("impedanceStop").addEventListener("click", () => { void impedanceCommand("stop"); });
+  $("impedanceEeg").addEventListener("click", () => { void impedanceCommand("eeg"); });
+  $("impedanceDiscover").addEventListener("click", () => action(discoverImpedance));
   for (const tab of document.querySelectorAll(".tab")) tab.addEventListener("click", () => selectTab(tab.dataset.tab));
   $("sourceSelect").addEventListener("change", () => { $("deviceFields").hidden = $("sourceSelect").value !== "device"; renderControls(); });
   $("connectButton").addEventListener("click", connectSource);
@@ -1317,12 +1445,14 @@
   window.addEventListener("pagehide", handleLostFocus);
 
   async function initialize() {
+    initializeImpedance();
     window.MIEvaluationUI?.initialize({ request, action, refresh: bootstrap, reasonText });
     renderControls();
     requestAnimationFrame(frame);
-    try { await bootstrap(); await poll(); }
+    try { await bootstrap(); await Promise.all([poll(), pollImpedance()]); }
     catch (error) { notify(`初始化失败：${error.message} 请确认本地服务已启动并刷新页面。`, true, true); }
     setInterval(() => { if (app.token) void poll(); }, 250);
+    setInterval(() => { if (app.token) { renderImpedance(); void pollImpedance(); } }, 500);
   }
   void initialize();
 })();
