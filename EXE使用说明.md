@@ -2,6 +2,8 @@
 
 `WanFanEEGHatController.exe` 是 Windows x64 单文件版本，内含 Python 和运行依赖，无需安装 Python。保留运动想象、c-VEP、SSVEP、通用二分类和 EEG 侧机械臂指令发送功能。
 
+**1.0.1** 新增首页“00 电极阻抗”，支持八通道阻抗检查及普通 EEG 模式切换。升级时先退出旧 EXE／后台服务，再启动新版，保留原有 `EEG_Realtime/data/`。可用 `--version` 查看程序版本。
+
 ## 启动与退出
 
 1. 将 EXE 放在可写的本地文件夹，双击运行。浏览器默认打开 `http://127.0.0.1:8765/`。首次启动需要解包依赖。

@@ -15,6 +15,11 @@ for distribution in ("numpy", "scipy", "scikit-learn", "joblib", "threadpoolctl"
 python_license = Path(sys.base_prefix) / "LICENSE.txt"
 if python_license.is_file():
     datas.append((str(python_license), "licenses/python"))
+# Some Python distributions load an auxiliary trust file beside ssl.py when
+# constructing SSLContext. Keep that distribution's verification policy intact.
+ssl_trust_file = Path(sys.base_prefix) / "Lib" / "codex-rejected-cas.pem"
+if ssl_trust_file.is_file():
+    datas.append((str(ssl_trust_file), "."))
 binaries = collect_dynamic_libs("sklearn")
 
 a = Analysis(
@@ -30,5 +35,6 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz, a.scripts, a.binaries, a.datas, [],
     name="WanFanEEGHatController", debug=False, strip=False, upx=False, console=True,
+    version=str(project / "windows_exe" / "version_info.txt"),
     disable_windowed_traceback=False,
 )

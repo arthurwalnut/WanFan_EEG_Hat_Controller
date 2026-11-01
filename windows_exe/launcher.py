@@ -14,6 +14,8 @@ import urllib.error
 import urllib.request
 import webbrowser
 
+RELEASE_VERSION = "1.0.1"
+
 
 def location() -> Path:
     if getattr(sys, "frozen", False):
@@ -37,8 +39,12 @@ def existing_service(port: int) -> bool:
 def runtime_check() -> dict:
     import importlib
     import importlib.metadata
+    import ssl
+    # Exercise bundled runtime resources needed by urllib's default opener.
+    ssl.create_default_context()
     from eeg_realtime import server
-    modules = ["eeg_realtime.mi_engine", "eeg_realtime.cvep_engine",
+    modules = ["eeg_realtime.impedance", "eeg_realtime.impedance_api",
+               "eeg_realtime.mi_engine", "eeg_realtime.cvep_engine",
                "eeg_realtime.mi_gap_export",
                "eeg_realtime.mi_delete",
                "eeg_realtime.mi_library", "eeg_realtime.mi_evaluation", "eeg_realtime.mi_test_job",
@@ -47,10 +53,10 @@ def runtime_check() -> dict:
                "bci.ssvep_pipeline.model"]
     imported = {name: str(importlib.import_module(name).__file__) for name in modules}
     assets = sorted(p.name for p in server.STATIC.iterdir() if p.is_file())
-    for name in ("mi.html", "mi-evaluation.js", "cvep.html", "ssvep.html", "index.html", "training-report.js"):
+    for name in ("mi.html", "mi-evaluation.js", "impedance.css", "cvep.html", "ssvep.html", "index.html", "training-report.js"):
         if name not in assets:
             raise RuntimeError(f"缺少网页资源：{name}")
-    return {"ok": True, "frozen": bool(getattr(sys, "frozen", False)),
+    return {"ok": True, "version": RELEASE_VERSION, "frozen": bool(getattr(sys, "frozen", False)),
             "python": sys.version.split()[0], "modules": imported, "assets": assets,
             "versions": {name: importlib.metadata.version(name) for name in
                          ("numpy", "scipy", "scikit-learn", "joblib", "threadpoolctl", "narwhals")}}
@@ -70,6 +76,7 @@ def wait_for_saves(workflows) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="EEG Hat：采集、录制、训练与在线识别")
+    parser.add_argument("--version", action="version", version=RELEASE_VERSION)
     parser.add_argument("--port", type=int, default=8765, help="网页端口，默认 8765")
     parser.add_argument("--workspace", type=Path,
                         help="工作区根目录；数据写入其中的 EEG_Realtime/data，默认 EXE 所在目录")
