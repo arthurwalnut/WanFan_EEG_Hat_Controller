@@ -35,3 +35,62 @@ body.recording-mode .cue-footer{flex-shrink:0;font-size:13px}
 body.recording-mode .timing-note{flex-shrink:0;margin-top:14px}
 @media(max-width:540px){body.recording-mode .cue-card{padding:18px}body.recording-mode .cue-stage>p{font-size:12px}body.recording-mode .cue-footer{font-size:11px;gap:10px}.focus-record-controls{gap:10px}.focus-record-controls>span{max-width:160px;font-size:10px}}
 @media(max-height:540px){body.recording-mode .cue-card{padding:10px 18px}body.recording-mode .cue-card .card-heading{margin-bottom:2px}body.recording-mode .cue-stage{padding:3px 0}body.recording-mode .cue-symbol{font-size:clamp(42px,20vh,90px);line-height:1}body.recording-mode .cue-stage h3{font-size:20px;margin-top:5px}body.recording-mode .cue-stage>p{font-size:11px;margin-top:3px}body.recording-mode .cue-trial,body.recording-mode .timing-note{display:none}body.recording-mode .cue-footer{font-size:11px}.focus-record-controls{margin-top:8px}.focus-record-controls button{min-height:32px;padding-top:4px;padding-bottom:4px}}
+
+/* Keep setup, live feedback and reference details visually distinct. */
+.page-heading{margin-bottom:18px}
+.tabs{overflow-x:auto;scrollbar-width:thin}
+.tab{flex-shrink:0;white-space:nowrap;padding:12px 17px}
+.tab:hover:not(:disabled){background:#eaf2f2;color:var(--teal)}
+.tab.active{background:#e6f1f0;border-radius:7px 7px 0 0}
+.training-grid{grid-template-columns:minmax(0,1.08fr) minmax(0,1fr);align-items:start}
+.training-stack{display:flex;flex-direction:column;gap:18px;min-width:0}
+.training-stack .card-heading{margin-bottom:12px}
+.training-stack .card-heading+label,.training-stack .two-fields label{margin-top:0}
+.help-details{margin-top:13px;border-top:1px solid var(--line);padding-top:10px;font-size:11px;color:var(--muted);line-height:1.75}
+.help-details summary{cursor:pointer;color:#406671;font-weight:550;width:fit-content;max-width:100%}
+.help-details[open] summary{margin-bottom:8px}
+.help-details p+p{margin-top:7px}
+.help-details.processing-note{padding:11px 13px;background:#f6f9f9}
+.help-details.processing-note summary{color:#355c64}
+.session-list{margin-top:8px}
+.session-actions .field-note{flex-basis:100%;margin-bottom:2px}
+.evaluation-selection-grid>div{min-width:0}
+.evaluation-selection-grid>div+div{border-left:1px solid var(--line);padding-left:24px}
+.evaluation-selection-grid h3{color:#355c64}
+.replay-model-result{background:#f7faf9;border:1px solid var(--line);border-radius:8px;padding:16px;margin-top:20px}
+.replay-model-result .card-heading{flex-wrap:wrap}
+.card-heading>div{min-width:0}
+.card-heading>button{flex-shrink:0}
+.top-meta{gap:18px;flex-wrap:wrap}
+.top-meta .legacy-link,.page-heading>.legacy-link{white-space:nowrap}
+@media(max-width:1050px){
+  .topbar{height:auto;min-height:84px;padding-top:14px;padding-bottom:14px}
+  .top-meta{justify-content:flex-end;gap:10px 16px}
+}
+@media(max-width:760px){
+  .topbar{align-items:flex-start;min-height:0;padding:16px;gap:12px}
+  .top-meta{max-width:55%;gap:8px 12px}
+  .legacy-link{display:inline-block;font-size:11px}
+  .top-meta .status-pill{margin-left:auto}
+  main{padding-top:20px}
+  .page-heading{align-items:flex-start;margin-bottom:16px}
+  .page-heading>.legacy-link{padding-top:7px}
+  .tabs{margin-bottom:16px}
+  .tab{padding:11px 12px}
+  .training-grid{grid-template-columns:1fr;gap:16px}
+  .training-stack{gap:16px}
+  .control-stack{grid-template-columns:1fr 1fr}
+  .cue-card{order:0;min-height:360px}
+  .cue-stage{min-height:230px}
+  .field-note,.card-heading p{font-size:11px}
+  .evaluation-selection-grid>div+div{border-left:0;border-top:1px solid var(--line);padding:18px 0 0}
+}
+@media(max-width:560px){
+  .control-stack{grid-template-columns:1fr}
+  .topbar{flex-direction:column}
+  .top-meta{max-width:none;width:100%;justify-content:flex-start}
+  .top-meta .status-pill{margin-left:auto}
+  .playback-controls{flex-wrap:wrap}
+  .replay-current{flex-basis:100%;margin-left:0;align-items:flex-start;flex-direction:row;flex-wrap:wrap}
+  .waveform-card .wave-controls label{flex-wrap:wrap}
+}

@@ -14,7 +14,7 @@ import urllib.error
 import urllib.request
 import webbrowser
 
-RELEASE_VERSION = "1.0.1"
+RELEASE_VERSION = "1.1.0"
 
 
 def location() -> Path:

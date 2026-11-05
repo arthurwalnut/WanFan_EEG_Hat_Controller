@@ -18,9 +18,9 @@
     <div class="top-meta"><a class="legacy-link" data-extra-workflow href="/cvep">c-VEP 注视选择 ↗</a><a class="legacy-link" data-extra-workflow href="/ssvep">SSVEP 四分类 ↗</a><span class="montage">250 Hz <i>·</i> 8 通道</span><span id="connectionStatus" class="status-pill">未连接</span></div>
   </header>
   <main>
-    <div class="page-heading"><div><p class="eyebrow">MOTOR IMAGERY WORKSPACE</p><h1>运动想象实验台</h1><p>采集静息与左右手运动想象，训练模型并实时识别。</p></div><a class="legacy-link" data-extra-workflow href="/legacy">通用采集与二分类 ↗</a></div>
+    <div class="page-heading"><div><h1>运动想象</h1><p>静息 · 左手 · 右手</p></div><a class="legacy-link" data-extra-workflow href="/legacy">通用采集与二分类 ↗</a></div>
     <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
-    <div id="demoBanner" class="demo-banner"><span class="demo-dot"></span><b>演示数据</b><span>用于验证软件流程；演示模型不能用于真实设备。</span></div>
+    <div id="demoBanner" class="demo-banner"><span class="demo-dot"></span><b>演示数据</b><span>仅供流程验证，演示模型不适用于真实设备。</span></div>
     <nav class="tabs" aria-label="实验工作区">
       <button type="button" class="tab" data-tab="impedance" aria-selected="false" role="tab" aria-controls="impedancePane" id="impedanceTab"><span>00</span> 电极阻抗</button>
       <button type="button" class="tab active" data-tab="acquisition" aria-selected="true" role="tab" aria-controls="acquisitionPane" id="acquisitionTab"><span>01</span> 采集与提示</button>
@@ -33,14 +33,13 @@
     <section id="impedancePane" class="tab-pane" role="tabpanel" aria-labelledby="impedanceTab" hidden>
       <div class="impedance-grid">
         <section class="card impedance-controls">
-          <div class="card-heading"><h2>检查电极阻抗</h2><span id="impedanceBadge" class="tag">待开始</span></div>
-          <p class="field-note">Check impedance · 切换设备测量模式，检查 8 个电极的接触状态。</p>
+          <div class="card-heading"><h2>设备与测量</h2><span id="impedanceBadge" class="tag">待开始</span></div>
           <label for="impedanceIp">设备 IPv4 地址</label>
           <div class="input-action"><input id="impedanceIp" type="text" placeholder="例如 192.168.137.240" autocomplete="off" inputmode="decimal" spellcheck="false"><button id="impedanceDiscover" type="button" class="secondary">发现</button></div>
           <div id="impedanceDiscovery" class="discovery-results" aria-live="polite"></div>
           <div class="button-row"><button id="impedanceStart" type="button" class="primary" disabled>开始检查阻抗</button><button id="impedanceStop" type="button" class="secondary" disabled>停止检查</button></div>
           <button id="impedanceEeg" type="button" class="secondary impedance-eeg" disabled>切回普通 EEG · 01</button>
-          <p class="field-note">检查时暂停 EEG 采集与识别。已连接的同一设备可在未录制时切换；演示、回放或其他工作台采集需先停止。切回普通 EEG 后可重新开始录制。</p>
+          <p class="field-note">检查时暂停采集与识别。同一设备可在未录制时切换；演示、回放及其他工作台采集需先停止。</p>
           <p id="impedanceMessage" class="impedance-message" role="status" aria-live="polite">点击“开始检查阻抗”连接设备。</p>
           <p id="impedanceTarget" class="field-note" hidden></p>
           <label for="impedanceProgress">测量窗口 <span id="impedanceWindow">等待数据</span></label>
@@ -49,7 +48,7 @@
           <p id="impedanceAge" class="field-note">尚无实时读数</p>
         </section>
         <section class="card impedance-readings">
-          <div class="card-heading"><div><h2>8 通道实时阻抗 <span class="heading-unit">kΩ</span></h2><p>头顶视图 · 上方为额头 · 固定电极映射</p></div><span id="impedanceFreshness" class="tag">等待测量</span></div>
+          <div class="card-heading"><div><h2>8 通道阻抗 <span class="heading-unit">kΩ</span></h2><p>头顶视图 · 请按实际接线核对电极</p></div><span id="impedanceFreshness" class="tag">等待测量</span></div>
           <div class="impedance-display">
             <div class="impedance-head-wrap">
               <span class="impedance-front">额头</span>
@@ -61,9 +60,9 @@
             </div>
             <div class="impedance-table-wrap"><table class="impedance-table"><thead><tr><th>通道</th><th>电极</th><th>阻抗 / kΩ</th></tr></thead><tbody id="impedanceRows"></tbody></table></div>
           </div>
-          <p class="field-note">每个读数由连续测量窗口计算。断流、切换或停止时清空当前值；“—”表示尚无有效测量。</p>
+          <p class="field-note">“—”表示暂无有效测量；断流、切换或停止后清空读数。</p>
           <div class="impedance-legend" aria-label="InBrain 参考色阶"><span class="grade-1">≤ 5 kΩ</span><span class="grade-2">5–10 kΩ</span><span class="grade-3">10–25 kΩ</span><span class="grade-4">&gt; 25 kΩ</span></div>
-          <p class="field-note">沿用 InBrain 参考色阶。250 kΩ 为显示上限；低 RMS、近饱和或估算达到上限时显示异常。电极位置仅为示意，请按实际电极接线核对通道。</p>
+          <details class="help-details"><summary>色阶与异常说明</summary><p>采用 InBrain 参考色阶，读数由连续测量窗口计算。显示上限为 250 kΩ；低 RMS、近饱和或估算达到上限时标记异常。</p></details>
         </section>
       </div>
     </section>
@@ -78,7 +77,7 @@
             <div id="deviceFields" hidden>
               <label for="deviceIp">设备 IPv4 地址</label>
               <div class="input-action"><input id="deviceIp" type="text" placeholder="例如 192.168.137.240" autocomplete="off" inputmode="decimal" spellcheck="false"><button id="discoverButton" type="button" class="secondary">发现</button></div>
-              <p class="field-note">连接前会确认设备地址；发现多台时请手动选择。搜索无响应时，可填写热点列表中的设备 IP 再连接。</p>
+              <p class="field-note">多台设备需手动选择；未发现时可填写热点列表中的 IP。</p>
               <div id="discoveryResults" class="discovery-results" aria-live="polite"></div>
             </div>
             <div class="button-row"><button id="connectButton" type="button" class="primary">连接演示</button><button id="disconnectButton" type="button" class="secondary" disabled>停止采集</button></div>
@@ -92,10 +91,10 @@
             <input id="subjectInput" type="text" maxlength="80" placeholder="例如 S01" autocomplete="off">
             <label for="durationInput">总时长（秒）</label>
             <input id="durationInput" type="number" min="1" max="3600" step="1" value="210">
-            <p class="field-note">每组为 2 秒十字间隔和 5 秒随机任务；余时不足一组则显示十字。训练需每类至少 6 个有效试次。</p>
+            <p class="field-note">每组 2 秒间隔 + 5 秒随机任务；训练需每类至少 6 个有效试次。</p>
             <div class="button-row"><button id="recordButton" type="button" class="primary" disabled>开始录制 <kbd>Space</kbd></button><button id="stopRecordButton" type="button" class="danger-quiet" disabled>结束并保存</button></div>
-            <p class="field-note">录制时请保持本页面聚焦；切换窗口或标签页将停止并保留数据。</p>
-            <p class="field-note">孤立丢失 1 包（50 点、0.2 秒）可继续；两次丢包的检测间隔须至少 15 秒。间隔不足或连续丢多包时停止并保存。</p>
+            <p class="field-note">保持本页聚焦；切换窗口或标签页会停止并保存。</p>
+            <details class="help-details"><summary>任务与中断规则</summary><p>剩余时长不足一组时显示十字。画面停顿或提示确认中断时停止录制。</p><p>单次丢 1 包（50 点、0.2 秒）且两次检测间隔 ≥ 15 秒可继续；间隔不足或连续丢多包时停止并保存。</p></details>
             <p id="clockSyncStatus" class="field-note">开始前检查提示时钟；估计的对齐误差超过 50 毫秒时暂不录制。</p>
           </section>
         </div>
@@ -110,12 +109,12 @@
           <div class="cue-footer"><span id="recordElapsed">00:00</span><div class="progress-track"><div id="recordProgress"></div></div><span id="recordRemaining">尚未录制</span></div>
           <p id="recordPacketLoss" class="field-note" role="status" aria-live="polite" hidden></p>
           <div id="focusRecordControls" class="focus-record-controls" hidden><span>录制进行中 · 请保持本页面聚焦</span><button id="focusStopRecordButton" type="button" class="danger-quiet">结束并保存</button></div>
-          <p class="timing-note">失焦、画面停顿或提示确认中断时停止录制。标签按浏览器与服务器时钟估计对齐，尚未进行硬件同步测量。</p>
+          <p class="timing-note">标签采用软件时钟对齐，未经硬件同步测量。</p>
         </section>
       </div>
       <section id="recordingValidation" class="card" hidden aria-live="polite">
         <div class="card-heading"><h2>录制后检查</h2><span id="recordingValidationStatus" class="tag">检查中</span></div>
-        <p class="field-note">原始记录保留；下方列出通过标注和信号检查、可用于训练的试次。</p>
+        <p class="field-note">列出通过标注与信号检查的试次；原始记录保留。</p>
         <div id="recordingValidationDetails"></div>
       </section>
     </section>
@@ -129,61 +128,69 @@
         <label class="sr-only" for="replaySeek">回放进度（秒）</label><input id="replaySeek" class="seek-slider" type="range" min="0" max="1" step="0.02" value="0" disabled>
         <div class="timeline-ends"><span id="replayPosition">00:00.0</span><span id="replayDuration">00:00.0</span></div>
         <div class="replay-model-result">
-          <div class="card-heading"><div><h3>回放中的模型预测</h3><p>已加载模型时，播放同步显示逐窗分类。整段测试可在“04 模型测试”中一次完成选择和评估。</p></div><button id="chooseReplayModel" type="button" class="secondary small">打开模型测试</button></div>
+          <div class="card-heading"><div><h3>模型预测</h3><p>加载模型后随回放显示逐窗分类。</p></div><button id="chooseReplayModel" type="button" class="secondary small">打开模型测试</button></div>
           <p id="replayModelName" class="field-note">尚未加载模型。</p>
           <div class="replay-prediction"><span>模型预测 <b id="replayPredictionLabel">—</b></span><span>置信度 <b id="replayPredictionConfidence">—</b></span><span id="replayPredictionStatus" class="tag">等待回放</span></div>
           <p id="replayPredictionReason" class="field-note">播放后显示分类结果；录制标注与模型预测分别展示。</p>
-          <p class="field-note">回放使用原始数据。播放或跳转后约需 3.5 秒连续信号预热；整段准确率、混淆矩阵和全部窗口结果见“04 模型测试”。</p>
+          <p class="field-note">使用原始数据；播放或跳转后约需 3.5 秒预热。整段指标见“04 模型测试”。</p>
         </div>
       </section>
     </section>
 
     <section id="trainingPane" class="tab-pane" role="tabpanel" aria-labelledby="trainingTab" hidden>
       <div class="training-grid">
+        <div class="training-stack">
         <section class="card">
-          <div class="card-heading"><div><h2>选择已录制的数据</h2><p>优先按整次录制划分训练、校准和测试集，仅使用通过检查的任务窗口。</p></div><button id="refreshTrainingButton" type="button" class="secondary small">刷新</button></div>
+          <div class="card-heading"><div><h2>1. 选择训练数据</h2><p>选用同一受试者、电极配置及信号来源的录制。</p></div><button id="refreshTrainingButton" type="button" class="secondary small">刷新</button></div>
           <label for="recordingSearch">搜索录制</label><input id="recordingSearch" type="search" placeholder="输入编号、录制名称或日期" autocomplete="off" spellcheck="false">
           <p id="recordingSearchCount" class="field-note" aria-live="polite">共 0 次录制</p>
           <div id="trainingSessions" class="session-list"><p class="empty-state">录制完成后，数据会出现在这里。</p></div>
           <div class="button-row session-actions"><span id="selectedSessions" class="field-note" aria-live="polite">已选 0 次录制</span><button id="clearRecordingSelection" type="button" class="secondary small" disabled>清空选择</button><button id="renameRecordingButton" type="button" class="secondary small" disabled>重命名</button><button id="deleteRecordingsButton" type="button" class="danger-quiet small" disabled>删除选中录制</button></div>
-          <p id="deleteRecordingsHint" class="field-note">删除前会列出全部选中文件，请再次确认。已训练模型保留。</p>
-          <div class="two-fields"><div><label for="featureSelect">特征</label><select id="featureSelect"><option value="csp">CSP · 6 维空间特征</option><option value="bandpower">8–30 Hz 频带功率 · 8 维</option><option value="combined">CSP + 频带功率 · 14 维</option></select></div><div><label for="classifierSelect">分类器</label><select id="classifierSelect"><option value="lda">LDA</option><option value="svm">线性 SVM</option></select></div></div>
-          <label class="training-fill-option"><input id="useFilledData" type="checkbox" aria-describedby="useFilledDataHint"><span>使用补齐数据训练</span></label>
-          <p id="useFilledDataHint" class="field-note">默认关闭，仅使用原始数据。开启后，全部选中录制中的可补齐丢包缺口使用两端均值补点；无丢包数据保持原样，时序与质量检查仍适用。</p>
-          <div class="processing-note"><b>预处理与特征</b><p>平均参考（CAR） → 50 / 100 Hz 陷波 → 1–40 Hz 带通 → 375 点窗口 / 25 点步长。</p><p>固定 250 Hz，对应 1.5 秒窗口、0.1 秒步长。频带功率使用 8–30 Hz 单带多窗谱估计（multitaper）与 log10，每通道 1 维；组合特征为 6 维 CSP + 8 维频带功率。</p><p>原始信号的直流偏置和大幅度仅提示告警；无效数值、饱和及平线会被剔除。</p></div>
-          <div class="button-row"><button id="trainButton" type="button" class="primary">训练三分类模型</button><button id="stopForTrainingButton" type="button" class="secondary" hidden>先停止采集</button></div>
-          <p id="trainingMessage" class="field-note" aria-live="polite">建议同一受试者、同一电极配置的数据共同训练。实机数据与演示数据不能混用。</p>
+          <p id="deleteRecordingsHint" class="field-note">删除前需确认文件清单；已训练模型保留。</p>
         </section>
         <section class="card">
-          <div class="card-heading"><h2>测试结果与训练诊断</h2><span id="trainingBadge" class="tag">未训练</span></div>
+          <div class="card-heading"><h2>2. 配置与训练</h2></div>
+          <div class="two-fields"><div><label for="featureSelect">特征</label><select id="featureSelect"><option value="csp">CSP · 6 维空间特征</option><option value="bandpower">8–30 Hz 频带功率 · 8 维</option><option value="combined">CSP + 频带功率 · 14 维</option></select></div><div><label for="classifierSelect">分类器</label><select id="classifierSelect"><option value="lda">LDA</option><option value="svm">线性 SVM</option></select></div></div>
+          <label class="training-fill-option"><input id="useFilledData" type="checkbox" aria-describedby="useFilledDataHint"><span>使用补齐数据训练</span></label>
+          <p id="useFilledDataHint" class="field-note">默认使用原始数据。开启后对可补齐缺口使用两端均值补点，仍执行时序与质量检查。</p>
+          <details class="help-details processing-note"><summary>预处理与数据划分</summary><p>CAR → 50 / 100 Hz 陷波 → 1–40 Hz 带通；250 Hz，1.5 秒窗口（375 点），0.1 秒步长（25 点）。</p><p>频带功率采用 8–30 Hz multitaper 与 log10，每通道 1 维；组合特征为 6 维 CSP + 8 维频带功率。</p><p>优先按整次录制划分训练、校准和测试集，仅使用通过检查的任务窗口。直流偏置与大幅度提示告警；无效数值、饱和及平线会被剔除。</p></details>
+          <div class="button-row"><button id="trainButton" type="button" class="primary">训练三分类模型</button><button id="stopForTrainingButton" type="button" class="secondary" hidden>先停止采集</button></div>
+          <p id="trainingMessage" class="field-note" aria-live="polite">请选择录制与算法，每类至少 6 个有效试次。</p>
+        </section>
+        </div>
+        <div class="training-stack">
+        <section class="card">
+          <div class="card-heading"><h2>训练结果</h2><span id="trainingBadge" class="tag">未训练</span></div>
           <p id="trainingResultContext" class="result-context">尚未训练</p>
           <div id="metricsPanel" class="metrics-panel"><p class="empty-state">训练完成后显示留出测试指标与数据隔离方式。</p></div>
-          <p class="field-note">测试准确率用于评估模型，置信度描述单次预测；新场景效果需另行验证。</p>
+          <p class="field-note">留出测试反映当前数据表现；新场景需另行验证。</p>
           <div class="divider"></div>
           <div id="diagnosticsPanel" class="diagnostics-panel"><p class="empty-state">训练后显示候选窗口、保留试次与告警原因；失败时也保留可用诊断。</p></div>
-          <div class="divider"></div>
-          <label for="modelSelect">已保存模型</label>
+        </section>
+        <section class="card">
+          <div class="card-heading"><h2>模型库</h2></div>
+          <label for="modelSelect">选择模型</label>
           <div class="input-action"><select id="modelSelect"><option value="">暂无模型</option></select><button id="loadModelButton" type="button" class="secondary">加载</button></div>
           <p id="modelDetails" class="field-note">采集与回放均可使用匹配数据来源的模型。</p>
           <div class="divider"></div>
-          <h3>模型管理</h3>
           <label for="modelSearch">搜索模型</label><input id="modelSearch" type="search" placeholder="输入名称、算法或日期" autocomplete="off" spellcheck="false">
           <p id="modelSearchCount" class="field-note" aria-live="polite">共 0 个模型</p>
           <div id="modelLibrary" class="session-list"><p class="empty-state">训练完成后，模型会出现在这里。</p></div>
           <div class="button-row session-actions"><span id="selectedModels" class="field-note" aria-live="polite">已选 0 个模型</span><button id="clearModelSelection" type="button" class="secondary small" disabled>清空选择</button><button id="renameModelButton" type="button" class="secondary small" disabled>重命名</button><button id="deleteModelsButton" type="button" class="danger-quiet small" disabled>删除选中模型</button></div>
-          <p id="modelLibraryHint" class="field-note">选中一个条目可重命名，点击星星收藏或取消收藏；删除前需再次确认。</p>
+          <p id="modelLibraryHint" class="field-note">单选可重命名；★ 切换收藏；删除前需确认。</p>
         </section>
+        </div>
       </div>
     </section>
 
     <section id="evaluationPane" class="tab-pane" role="tabpanel" aria-labelledby="evaluationTab" hidden>
       <section class="card">
-        <div class="card-heading"><div><h2>用已有模型测试录制数据</h2><p>选择模型与录制，直接得到整段结果，无需加载模型或播放回放。</p></div><button id="refreshEvaluationButton" type="button" class="secondary small">刷新列表</button></div>
+        <div class="card-heading"><div><h2>录制数据测试</h2><p>选择已有模型和 1–50 次录制，评估整段数据。</p></div><button id="refreshEvaluationButton" type="button" class="secondary small">刷新列表</button></div>
         <div class="evaluation-selection-grid">
           <div><h3>1. 选择一个模型</h3><label for="evaluationModelSearch">搜索模型</label><input id="evaluationModelSearch" type="search" placeholder="输入名称、算法或日期" autocomplete="off"><p id="evaluationModelCount" class="field-note"></p><div id="evaluationModels" class="session-list evaluation-list"><p class="empty-state">暂无模型</p></div><p id="evaluationModelChoice" class="field-note">尚未选择模型。</p></div>
           <div><h3>2. 选择测试录制</h3><label for="evaluationRecordingSearch">搜索录制</label><input id="evaluationRecordingSearch" type="search" placeholder="输入名称、受试者或日期" autocomplete="off"><p id="evaluationRecordingCount" class="field-note"></p><div id="evaluationRecordings" class="session-list evaluation-list"><p class="empty-state">暂无录制</p></div><div class="button-row session-actions"><span id="evaluationSelectedCount" class="field-note">已选 0 / 50 次录制</span><button id="evaluationClearSelection" type="button" class="secondary small">清空选择</button></div></div>
         </div>
-        <p class="field-note">固定使用原始数据，窗口 1.5 秒、步长 0.1 秒；沿用保存的预处理、特征与分类器。测试不会重新训练或发送机械臂指令。</p>
+        <details class="help-details"><summary>测试方式</summary><p>使用原始数据及模型保存的预处理、特征与分类器；窗口 1.5 秒、步长 0.1 秒。测试不重新训练或发送机械臂指令。</p></details>
         <div class="button-row"><button id="startEvaluationButton" type="button" class="primary">开始测试</button><button id="cancelEvaluationButton" type="button" class="danger-quiet" disabled>取消测试</button><span id="evaluationStatus" class="tag">待开始</span></div>
         <progress id="evaluationProgress" class="evaluation-progress" value="0" max="1" aria-label="模型测试进度" hidden></progress>
         <p id="evaluationMessage" class="field-note" role="status" aria-live="polite">选择一个模型和 1–50 次录制。</p>
@@ -195,13 +202,13 @@
         <div id="evaluationMetricCards" class="metric-cards evaluation-metric-cards"></div>
         <p id="evaluationScoreNote" class="field-note"></p>
         <div class="evaluation-matrices"><div id="evaluationWindowMatrix"></div><div id="evaluationTrialMatrix"></div></div>
-        <h3 class="evaluation-section-heading">每类结果</h3><p class="field-note">Precision 为预测该类时的准确比例；Recall 为该类被识别出的比例；F1 综合两者。没有对应分母时显示“—”。</p><div id="evaluationClassMetrics" class="diagnostic-table-wrap"></div>
+        <h3 class="evaluation-section-heading">每类结果</h3><div id="evaluationClassMetrics" class="diagnostic-table-wrap"></div><details class="help-details"><summary>指标说明</summary><p>Precision：预测该类时的准确比例；Recall：该类被识别出的比例；F1：两者的综合指标。无对应分母时显示“—”。</p></details>
         <h3 class="evaluation-section-heading">录制与窗口检查</h3><div id="evaluationCounts"></div><div id="evaluationRecordingMetrics" class="diagnostic-table-wrap"></div>
         <details class="diagnostic-details"><summary>本次测试使用的模型与录制</summary><div id="evaluationInputs" class="diagnostic-recordings"></div></details>
         <div id="evaluationLimitations" class="field-note"></div>
       </section>
       <section id="evaluationWindows" class="card evaluation-results" hidden>
-        <div class="card-heading"><div><h2>全部窗口结果</h2><p>包含无法评分的窗口；概率顺序为静息、左手、右手。</p></div><span id="evaluationWindowCount" class="tag">0 条</span></div>
+        <div class="card-heading"><div><h2>逐窗结果</h2><p>包含无法评分的窗口。</p></div><span id="evaluationWindowCount" class="tag">0 条</span></div>
         <div class="evaluation-window-scroll"><table class="evaluation-window-table"><thead><tr><th>录制 / 试次</th><th>时间窗（秒）</th><th>原标注</th><th>预测</th><th>置信度</th><th>静息概率</th><th>左手概率</th><th>右手概率</th><th>评分 / 告警</th></tr></thead><tbody id="evaluationWindowRows"></tbody></table></div>
         <div class="button-row evaluation-pagination"><button id="evaluationPreviousPage" type="button" class="secondary small">上一页</button><span id="evaluationPagePosition" class="field-note">每页 50 条</span><button id="evaluationNextPage" type="button" class="secondary small">下一页</button></div>
       </section>
@@ -213,7 +220,7 @@
         <div class="robot-layout">
           <div>
             <div class="two-fields"><div><label for="robotHost">机械臂 PC 的 IPv4</label><input id="robotHost" type="text" placeholder="填写另一台 PC 的地址" autocomplete="off" spellcheck="false"></div><div><label for="robotPort">UDP 端口</label><input id="robotPort" type="number" min="1024" max="65535" value="5005"></div></div>
-            <p class="field-note">填写运行 receiver.py 的电脑地址；EEG Hat 与 Elite 控制器的地址另行配置。</p>
+            <p class="field-note">填写运行机械臂接收程序的电脑地址。</p>
             <div class="button-row robot-buttons"><button id="robotPreview" class="secondary" type="button">仅预览映射</button><button id="robotTest" class="secondary" type="button">发送 TEST（不动作）</button><button id="robotEnable" class="primary" type="button" disabled>启用机械臂发送</button><button id="robotStop" class="danger-quiet" type="button">停止发送</button></div>
             <p id="robotAvailability" class="field-note">发送需连接真实设备、加载匹配模型并持续收到数据；演示和回放仅可预览。</p>
             <p id="robotNotice" class="robot-notice" role="status" aria-live="polite"></p>
@@ -227,7 +234,7 @@
             <dl class="robot-delivery"><div><dt>发送</dt><dd id="robotSent">尚未发送动作指令</dd></div><div><dt>接收端回执</dt><dd id="robotAck">尚无回执</dd></div></dl>
           </div>
         </div>
-        <div class="robot-rules"><p>EEG 分类窗 1.5 s、步长 0.1 s；每个有效预测直接映射，置信度、得分差、训练分布告警和最近 15 窗统计仅供参考。静息不发送动作包。接收端沿用 25 s 冷却并等待当前动作结束；持续输出时，冷却结束后可再次触发。</p><p>录制、换模型、断流、硬信号异常、页面失焦或失联会关闭发送，需要重新启用；最近停发原因单独保留。停止发送仅停止后续指令；已开始的动作需在机器人端停止或使用实体急停。</p></div>
+        <div class="robot-rules"><p>停止发送仅停止后续指令；已开始的动作需在机器人端停止或使用实体急停。</p><details class="help-details"><summary>触发与自动停发规则</summary><p>每个有效预测直接映射；置信度、得分差、训练分布告警和最近 15 窗统计仅供参考。接收端冷却 25 秒并等待当前动作结束；持续输出可在冷却后再次触发。</p><p>录制、换模型、断流、硬信号异常、页面失焦或失联会关闭发送，需重新启用。最近停发原因单独保留。</p></details></div>
       </section>
     <section class="online-grid">
       <div class="card prediction-card">
@@ -239,7 +246,7 @@
         <div class="prediction-meta"><span>窗口 <b>1.5 s</b></span><span>步长 <b>0.1 s</b></span><span id="activeModel">未加载模型</span></div>
       </div>
       <div class="card prediction-history">
-        <div class="card-heading"><div><h2>窗口预测记录</h2><p>每条记录对应一个信号窗口，按 0.1 秒步长更新。</p></div><span id="predictionCount" class="tag">0 条</span></div>
+        <div class="card-heading"><h2>预测记录</h2><span id="predictionCount" class="tag">0 条</span></div>
         <div class="table-scroll"><table><thead><tr><th>时间窗（秒）</th><th>预测</th><th>置信度</th><th>状态</th></tr></thead><tbody id="predictionRows"><tr><td colspan="4" class="empty-state">暂无预测窗口</td></tr></tbody></table></div>
       </div>
     </section>
@@ -256,7 +263,7 @@
     </section>
 
     <details class="event-panel"><summary>运行事件 <span id="eventCount">0</span></summary><ol id="eventList"><li>暂无事件</li></ol></details>
-    <footer><span>本地运行 · 数据保存在本机</span><span>O2 / O1 / P8 / P7 / C4 / C3 / FP1 / FP2</span></footer>
+    <footer><span>本地运行 · 数据保存在本机</span></footer>
   </main>
   <dialog id="deleteRecordingsDialog" class="delete-recordings-dialog" aria-labelledby="deleteRecordingsTitle" aria-describedby="deleteRecordingsSummary">
     <h2 id="deleteRecordingsTitle">确认删除录制数据</h2>
@@ -269,7 +276,7 @@
     <h2 id="renameLibraryTitle">重命名</h2>
     <p id="renameLibraryItem" class="field-note"></p>
     <label for="libraryNameInput">显示名称</label><input id="libraryNameInput" type="text" maxlength="80" autocomplete="off" placeholder="留空恢复默认名称">
-    <p id="renameLibraryNote" class="field-note">最多 80 个字符，留空恢复默认名称。仅修改显示名称，原始文件名、内部编号及受试者编号保持不变。</p>
+    <p id="renameLibraryNote" class="field-note">最多 80 字符，留空恢复默认名称；原文件名、内部编号与受试者编号保留。</p>
     <div class="button-row"><button id="cancelLibraryRename" type="button" class="secondary">取消</button><button id="saveLibraryRename" type="button" class="primary">保存名称</button></div>
   </dialog>
 </body>
