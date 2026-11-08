@@ -35,7 +35,7 @@
     recordingMode: false, restoreFocus: null, inertNodes: [], presentedCue: null,
     clockUncertainty: null, clockResolution: null, lastFrameAt: null, lastVisibleElapsed: null,
     displayInFlight: false, lastDisplayElapsed: -Infinity, lastDisplayPhase: undefined,
-    deletePreview: null, deleteSubmitting: false, renameTarget: null, activeTab: "acquisition",
+    deletePreview: null, deleteSubmitting: false, renameTarget: null, activeTab: "impedance",
     impedance: null, impedanceOnline: false, impedanceAt: 0, impedanceRequestedAt: 0, impedancePolling: null, impedanceEpoch: 0, impedanceChanging: false,
   };
   const finite = (value) => typeof value === "number" && Number.isFinite(value);
@@ -540,9 +540,11 @@
     finally { app.busy = false; renderControls(); }
   }
 
-  const IMPEDANCE_POSITIONS = { O2: [65, 84], O1: [35, 84], P8: [82, 65], P7: [18, 65], C4: [70, 44], C3: [30, 44], FP1: [34, 19], FP2: [66, 19] };
+  // Impedance wiring follows CH1–CH8; keep acquisition/model channel labels unchanged.
+  const IMPEDANCE_CHANNELS = ["FP2", "FP1", "C3", "C4", "P7", "P8", "O1", "O2"];
+  const IMPEDANCE_POSITIONS = { O2: [65, 84], O1: [35, 84], P8: [82, 65], P7: [18, 65], C4: [70, 44], C3: [30, 44], FP1: [34, 19], FP2: [66, 19], GND: [50, 31.5], REF: [50, 65] };
   function initializeImpedance() {
-    CHANNELS.forEach((name, index) => {
+    IMPEDANCE_CHANNELS.forEach((name, index) => {
       const electrode = element("div", undefined, "impedance-electrode");
       electrode.id = `impedanceElectrode${index}`;
       electrode.style.left = `${IMPEDANCE_POSITIONS[name][0]}%`;
@@ -550,9 +552,23 @@
       electrode.append(element("b", name), element("span", "—"));
       $("impedanceElectrodes").append(electrode);
       const row = element("tr"); row.id = `impedanceRow${index}`;
-      row.append(element("td", `CH${index + 1}`), element("td", name), element("td", "—"));
+      const channelNumber = index + 1;
+      row.append(element("td", String(10 - channelNumber)), element("td", `CH${channelNumber}`), element("td", name), element("td", "—"));
       $("impedanceRows").append(row);
     });
+    for (const [name, number] of [["GND", 1], ["REF", 10]]) {
+      const electrode = element("div", undefined, "impedance-electrode impedance-reference");
+      electrode.id = `impedance${name}`;
+      electrode.style.left = `${IMPEDANCE_POSITIONS[name][0]}%`;
+      electrode.style.top = `${IMPEDANCE_POSITIONS[name][1]}%`;
+      electrode.append(element("b", name));
+      electrode.title = `${name} · 电极标号 ${number} · 不测量阻抗`;
+      $("impedanceElectrodes").append(electrode);
+      const row = element("tr", undefined, "impedance-reference-row");
+      row.id = `impedanceRow${name}`;
+      row.append(element("td", String(number)), element("td", "-"), element("td", name), element("td", "—"));
+      $("impedanceRows").append(row);
+    }
   }
 
   function renderImpedance() {
@@ -585,8 +601,10 @@
     $("impedanceAge").textContent = online && active && finite(dataAge) ? `最近数据约 ${fmt(dataAge, 1)} 秒前` : "尚无实时读数";
     $("impedanceFreshness").textContent = fresh ? "实时更新" : active && online ? "积累连续数据" : "无当前读数";
     $("impedanceFreshness").className = `tag${fresh ? " active" : ""}`;
-    CHANNELS.forEach((name, index) => {
-      const channel = (state.channels || []).find((item) => item.name === name);
+    IMPEDANCE_CHANNELS.forEach((name, index) => {
+      // The API emits one entry per raw data column in CH1–CH8 order.
+      // Its legacy name field is not the impedance wiring label.
+      const channel = (state.channels || [])[index];
       const valid = fresh && finite(channel?.kohm);
       const abnormal = fresh && channel?.abnormal === true;
       const text = valid ? fmt(channel.kohm, 1) : abnormal ? "异常" : "—";
@@ -1446,6 +1464,7 @@
 
   async function initialize() {
     initializeImpedance();
+    selectTab(app.activeTab);
     window.MIEvaluationUI?.initialize({ request, action, refresh: bootstrap, reasonText });
     renderControls();
     requestAnimationFrame(frame);

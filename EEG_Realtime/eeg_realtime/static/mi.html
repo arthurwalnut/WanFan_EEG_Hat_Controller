@@ -12,7 +12,7 @@
   <script src="/mi-evaluation.js" defer></script>
   <script src="/mi.js" defer></script>
 </head>
-<body>
+<body class="impedance-page">
   <header class="topbar">
     <a class="brand" href="/" aria-label="EEG 运动想象实验台首页"><span class="brand-mark">∿</span><span>EEG <b>实验台</b><small>运动想象 · 采集与在线识别</small></span></a>
     <div class="top-meta"><a class="legacy-link" data-extra-workflow href="/cvep">c-VEP 注视选择 ↗</a><a class="legacy-link" data-extra-workflow href="/ssvep">SSVEP 四分类 ↗</a><span class="montage">250 Hz <i>·</i> 8 通道</span><span id="connectionStatus" class="status-pill">未连接</span></div>
@@ -20,17 +20,17 @@
   <main>
     <div class="page-heading"><div><h1>运动想象</h1><p>静息 · 左手 · 右手</p></div><a class="legacy-link" data-extra-workflow href="/legacy">通用采集与二分类 ↗</a></div>
     <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
-    <div id="demoBanner" class="demo-banner"><span class="demo-dot"></span><b>演示数据</b><span>仅供流程验证，演示模型不适用于真实设备。</span></div>
+    <div id="demoBanner" class="demo-banner" hidden><span class="demo-dot"></span><b>演示数据</b><span>仅供流程验证，演示模型不适用于真实设备。</span></div>
     <nav class="tabs" aria-label="实验工作区">
-      <button type="button" class="tab" data-tab="impedance" aria-selected="false" role="tab" aria-controls="impedancePane" id="impedanceTab"><span>00</span> 电极阻抗</button>
-      <button type="button" class="tab active" data-tab="acquisition" aria-selected="true" role="tab" aria-controls="acquisitionPane" id="acquisitionTab"><span>01</span> 采集与提示</button>
+      <button type="button" class="tab active" data-tab="impedance" aria-selected="true" role="tab" aria-controls="impedancePane" id="impedanceTab"><span>00</span> 电极阻抗</button>
+      <button type="button" class="tab" data-tab="acquisition" aria-selected="false" role="tab" aria-controls="acquisitionPane" id="acquisitionTab"><span>01</span> 采集与提示</button>
       <button type="button" class="tab" data-tab="replay" aria-selected="false" role="tab" aria-controls="replayPane" id="replayTab"><span>02</span> 数据回放</button>
       <button type="button" class="tab" data-tab="training" aria-selected="false" role="tab" aria-controls="trainingPane" id="trainingTab"><span>03</span> 模型训练</button>
       <button type="button" class="tab" data-tab="evaluation" aria-selected="false" role="tab" aria-controls="evaluationPane" id="evaluationTab"><span>04</span> 模型测试</button>
       <button type="button" class="tab" data-tab="robot" aria-selected="false" role="tab" aria-controls="robotPane" id="robotTab"><span>05</span> 在线识别与机械臂</button>
     </nav>
 
-    <section id="impedancePane" class="tab-pane" role="tabpanel" aria-labelledby="impedanceTab" hidden>
+    <section id="impedancePane" class="tab-pane" role="tabpanel" aria-labelledby="impedanceTab">
       <div class="impedance-grid">
         <section class="card impedance-controls">
           <div class="card-heading"><h2>设备与测量</h2><span id="impedanceBadge" class="tag">待开始</span></div>
@@ -58,16 +58,16 @@
               </div>
               <p class="field-note impedance-orientation">左侧 / L <span>右侧 / R</span></p>
             </div>
-            <div class="impedance-table-wrap"><table class="impedance-table"><thead><tr><th>通道</th><th>电极</th><th>阻抗 / kΩ</th></tr></thead><tbody id="impedanceRows"></tbody></table></div>
+            <div class="impedance-table-wrap"><table class="impedance-table"><thead><tr><th>电极标号</th><th>通道</th><th>电极</th><th>阻抗 / kΩ</th></tr></thead><tbody id="impedanceRows"></tbody></table></div>
           </div>
-          <p class="field-note">“—”表示暂无有效测量；断流、切换或停止后清空读数。</p>
+          <p class="field-note">“—”表示暂无有效测量；断流、切换或停止后清空读数。GND、REF 不测量阻抗。</p>
           <div class="impedance-legend" aria-label="InBrain 参考色阶"><span class="grade-1">≤ 5 kΩ</span><span class="grade-2">5–10 kΩ</span><span class="grade-3">10–25 kΩ</span><span class="grade-4">&gt; 25 kΩ</span></div>
           <details class="help-details"><summary>色阶与异常说明</summary><p>采用 InBrain 参考色阶，读数由连续测量窗口计算。显示上限为 250 kΩ；低 RMS、近饱和或估算达到上限时标记异常。</p></details>
         </section>
       </div>
     </section>
 
-    <section id="acquisitionPane" class="tab-pane" role="tabpanel" aria-labelledby="acquisitionTab">
+    <section id="acquisitionPane" class="tab-pane" role="tabpanel" aria-labelledby="acquisitionTab" hidden>
       <div class="acquisition-grid">
         <div class="control-stack">
           <section class="card">
@@ -252,7 +252,7 @@
     </section>
     </section>
 
-    <section class="card waveform-card">
+    <section class="card waveform-card" hidden>
       <div class="card-heading"><div><h2>8 通道信号 <span class="heading-unit">µV</span></h2><p id="waveformCaption">固定顺序：O2 · O1 · P8 · P7 · C4 · C3 · FP1 · FP2</p></div><div class="wave-controls">
         <label for="waveRowHeight">条带高度<select id="waveRowHeight"><option value="64">64 px</option><option value="96" selected>96 px</option><option value="144">144 px</option><option value="192">192 px</option></select></label>
         <label for="waveScale">每行量程<select id="waveScale"><option value="auto" selected>自动 · 统一量程</option><option value="25">±25 µV</option><option value="50">±50 µV</option><option value="100">±100 µV</option><option value="250">±250 µV</option><option value="500">±500 µV</option><option value="1000">±1,000 µV</option><option value="2500">±2,500 µV</option><option value="5000">±5,000 µV</option><option value="10000">±10,000 µV</option></select></label><span id="waveSource" class="tag">等待数据</span>

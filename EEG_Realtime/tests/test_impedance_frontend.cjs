@@ -26,7 +26,7 @@ const state = () => ({active: true, status: 'running', fresh: true, device_ip: '
   channels: ['O2', 'O1', 'P8', 'P7', 'C4', 'C3', 'FP1', 'FP2'].map(name => ({name, kohm: 9, abnormal: false, reason: 'ok'}))});
 let requestImpl = async () => state();
 const sandbox = {app, $, console, Promise, performance: {now: () => now},
-  CHANNELS: ['O2', 'O1', 'P8', 'P7', 'C4', 'C3', 'FP1', 'FP2'],
+  IMPEDANCE_CHANNELS: ['FP2', 'FP1', 'C3', 'C4', 'P7', 'P8', 'O1', 'O2'],
   finite: x => typeof x === 'number' && Number.isFinite(x),
   fmt: (x, n = 1) => Number.isFinite(x) ? x.toFixed(n) : '—',
   isImpedanceActive: () => Boolean(app.impedance?.active) || ['running', 'connecting', 'stopping'].includes(app.impedance?.status),
